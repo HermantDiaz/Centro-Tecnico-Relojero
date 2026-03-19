@@ -11,14 +11,14 @@ export default function Dashboard() {
             Resumen operativo y financiero de hoy en CTR Relojería.
           </p>
         </div>
-        <div className="flex flex-wrap gap-3">
-          <button className="px-4 py-2.5 bg-neutral-900 dark:bg-white text-white dark:text-black rounded-xl font-bold text-sm hover:scale-105 transition-all shadow-lg">
+        <div className="flex flex-row gap-2 md:gap-4 shrink-0 overflow-x-auto pb-2 md:pb-0 scrollbar-hide">
+          <button className="whitespace-nowrap px-4 py-2.5 bg-neutral-900 dark:bg-white text-white dark:text-black rounded-xl font-bold text-xs md:text-sm hover:scale-105 transition-all shadow-lg min-w-max">
             ✨ Nueva Reparación
           </button>
-          <button className="px-4 py-2.5 bg-white dark:bg-neutral-800 border border-neutral-200 dark:border-neutral-700 text-neutral-900 dark:text-white rounded-xl font-bold text-sm hover:bg-neutral-50 dark:hover:bg-neutral-700 transition-all shadow-sm">
+          <button className="whitespace-nowrap px-4 py-2.5 bg-white dark:bg-neutral-800 border border-neutral-200 dark:border-neutral-700 text-neutral-900 dark:text-white rounded-xl font-bold text-xs md:text-sm hover:bg-neutral-50 dark:hover:bg-neutral-700 transition-all shadow-sm min-w-max">
             💰 Registrar Ingreso
           </button>
-          <button className="px-4 py-2.5 bg-red-50 dark:bg-red-950/30 border border-red-100 dark:border-red-900/50 text-red-600 dark:text-red-400 rounded-xl font-bold text-sm hover:bg-red-100 dark:hover:bg-red-900/50 transition-all shadow-sm">
+          <button className="whitespace-nowrap px-4 py-2.5 bg-red-50 dark:bg-red-950/30 border border-red-100 dark:border-red-900/50 text-red-600 dark:text-red-400 rounded-xl font-bold text-xs md:text-sm hover:bg-red-100 dark:hover:bg-red-900/50 transition-all shadow-sm min-w-max">
             📉 Registrar Gasto
           </button>
         </div>
