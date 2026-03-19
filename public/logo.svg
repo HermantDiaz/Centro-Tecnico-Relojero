@@ -1,13 +1,17 @@
-<svg width="200" height="200" viewBox="0 0 200 200" fill="none" xmlns="http://www.w3.org/2000/svg">
-  <!-- Cuerpo del reloj -->
-  <path d="M70 40C70 40 75 20 100 20C125 20 130 40 130 40V65C130 65 160 75 160 110C160 145 130 155 130 155V180C130 180 125 200 100 200C75 200 70 180 70 180V155C70 155 40 145 40 110C40 75 70 65 70 65V40Z" fill="black"/>
-  <!-- Esfera -->
-  <circle cx="100" cy="110" r="45" fill="black" stroke="white" stroke-width="4"/>
+<svg width="240" height="200" viewBox="0 0 240 200" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <!-- Correa superior -->
+  <path d="M78 20L84 65H116L122 20H78Z" fill="black"/>
+  <!-- Esfera del reloj -->
+  <circle cx="100" cy="100" r="48" fill="black" stroke="white" stroke-width="4"/>
   <!-- Manecillas -->
-  <path d="M100 110V85" stroke="white" stroke-width="6" stroke-linecap="round"/>
-  <path d="M100 110L80 130" stroke="white" stroke-width="6" stroke-linecap="round"/>
-  <!-- Texto CTR -->
-  <text x="170" y="70" font-family="Arial, sans-serif" font-weight="bold" font-size="50" fill="black">C</text>
-  <text x="170" y="125" font-family="Arial, sans-serif" font-weight="bold" font-size="50" fill="black">T</text>
-  <text x="170" y="180" font-family="Arial, sans-serif" font-weight="bold" font-size="50" fill="black">R</text>
+  <path d="M100 100V65" stroke="white" stroke-width="6" stroke-linecap="round"/>
+  <path d="M100 100L78 122" stroke="white" stroke-width="6" stroke-linecap="round"/>
+  <!-- Correa inferior -->
+  <path d="M84 135L78 180H122L116 135H84Z" fill="black"/>
+  <!-- Texto CTR apilado -->
+  <g transform="translate(165, 55)">
+    <text x="0" y="0" font-family="Arial, sans-serif" font-weight="900" font-size="52" fill="black">C</text>
+    <text x="0" y="55" font-family="Arial, sans-serif" font-weight="900" font-size="52" fill="black">T</text>
+    <text x="0" y="110" font-family="Arial, sans-serif" font-weight="900" font-size="52" fill="black">R</text>
+  </g>
 </svg>

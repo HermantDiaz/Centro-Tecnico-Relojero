@@ -22,9 +22,12 @@ export default function RootLayout({
         <div className="flex h-screen overflow-hidden">
           {/* Sidebar Lateral */}
           <aside className="w-64 bg-white dark:bg-neutral-900 border-r border-neutral-200 dark:border-neutral-800 flex flex-col hidden md:flex">
-            <div className="p-6 flex items-center gap-3">
-              <Image src="/logo.svg" alt="CTR Logo" width={40} height={40} className="dark:invert" />
-              <span className="font-bold text-xl tracking-tight">CTR RELOJERIA</span>
+            <div className="p-6 flex items-center gap-2">
+              <Image src="/logobuenoVectorizado.svg" alt="CTR Logo" width={64} height={64} className="dark:invert object-contain" />
+              <div className="flex flex-col">
+                <span className="font-black text-xl leading-none tracking-tighter">RELOJERÍA</span>
+                <span className="text-[10px] font-bold text-neutral-400 tracking-[0.2em] uppercase">Software System</span>
+              </div>
             </div>
             
             <nav className="flex-1 px-4 space-y-2 mt-4">
@@ -61,7 +64,7 @@ export default function RootLayout({
           {/* Área de Contenido Principal */}
           <main className="flex-1 overflow-y-auto bg-neutral-50 dark:bg-black p-4 md:p-8">
             <header className="flex justify-between items-center mb-8 md:hidden">
-              <Image src="/logo.svg" alt="CTR Logo" width={32} height={32} className="dark:invert" />
+              <Image src="/logobuenoVectorizado.svg" alt="CTR Logo" width={48} height={48} className="dark:invert object-contain" />
               <button className="p-2 bg-neutral-100 dark:bg-neutral-800 rounded-lg">
                 ☰
               </button>
