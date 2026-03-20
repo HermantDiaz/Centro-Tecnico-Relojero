@@ -104,11 +104,27 @@ export default function GestionUsuarios() {
           <h1 className="text-4xl font-black text-neutral-900 dark:text-white tracking-tight uppercase italic">Gestión de Equipo</h1>
         </div>
         <button 
-          onClick={() => alert("Función: Envía un enlace de registro al empleado.")}
+          onClick={() => alert(`Comparte este enlace con tu equipo para que se registren:\n${window.location.origin}/login`)}
           className="px-6 py-3 bg-black dark:bg-white text-white dark:text-black rounded-2xl text-[10px] font-black uppercase tracking-widest hover:scale-105 active:scale-95 transition-all shadow-xl shadow-black/10"
         >
           + Invitar Miembro
         </button>
+      </div>
+
+      {/* Stats Summary */}
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+        <div className="bg-white dark:bg-neutral-900 p-8 rounded-[2.5rem] border border-neutral-100 dark:border-neutral-800 shadow-xl">
+          <p className="text-[10px] font-black text-neutral-400 uppercase tracking-widest mb-1">Total Personal</p>
+          <p className="text-3xl font-black text-neutral-900 dark:text-white italic">{usuarios.length}</p>
+        </div>
+        <div className="bg-white dark:bg-neutral-900 p-8 rounded-[2.5rem] border border-neutral-100 dark:border-neutral-800 shadow-xl border-l-4 border-l-blue-500">
+          <p className="text-[10px] font-black text-neutral-400 uppercase tracking-widest mb-1">Técnicos</p>
+          <p className="text-3xl font-black text-neutral-900 dark:text-white italic">{usuarios.filter(u => u.rol === 'tecnico').length}</p>
+        </div>
+        <div className="bg-white dark:bg-neutral-900 p-8 rounded-[2.5rem] border border-neutral-100 dark:border-neutral-800 shadow-xl border-l-4 border-l-amber-500">
+          <p className="text-[10px] font-black text-neutral-400 uppercase tracking-widest mb-1">Activos</p>
+          <p className="text-3xl font-black text-emerald-600 italic">{usuarios.filter(u => u.activo).length}</p>
+        </div>
       </div>
 
       {/* Tabla de Usuarios */}
