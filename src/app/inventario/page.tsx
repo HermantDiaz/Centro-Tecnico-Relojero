@@ -89,21 +89,8 @@ export default function Inventario() {
     if (error) {
       console.error("Error fetching inventory:", error);
     } else {
-      // Parsear SKU del nombre [SKU] Nombre
-      const parsedProducts = (prodData || []).map((p: any) => {
-        let sku = "";
-        let realName = p.nombre;
-        if (p.nombre && p.nombre.startsWith("[")) {
-          const endBracket = p.nombre.indexOf("]");
-          if (endBracket > -1) {
-            sku = p.nombre.substring(1, endBracket);
-            realName = p.nombre.substring(endBracket + 1).trim();
-          }
-        }
-        return { ...p, codigo: sku, nombre: realName };
-      });
-
-      setProductos(parsedProducts);
+      // Ahora usamos la columna 'codigo' directamente de la DB
+      setProductos(prodData || []);
       
       const totalCost = (prodData || []).reduce((acc: number, curr: any) => acc + (curr.precio_compra * curr.stock_actual), 0);
       const totalPotential = (prodData || []).reduce((acc: number, curr: any) => acc + (curr.precio_venta * curr.stock_actual), 0);
@@ -144,12 +131,9 @@ export default function Inventario() {
 
     setSaving(true);
 
-    const nombreCompuesto = nuevoProducto.codigo 
-      ? `[${nuevoProducto.codigo}] ${nuevoProducto.nombre}` 
-      : nuevoProducto.nombre;
-
     const finalData = {
-      nombre: nombreCompuesto,
+      codigo: nuevoProducto.codigo,
+      nombre: nuevoProducto.nombre,
       marca: nuevoProducto.marca,
       modelo: nuevoProducto.modelo,
       precio_compra: nuevoProducto.precio_compra,
@@ -271,7 +255,7 @@ export default function Inventario() {
   }
 
   return (
-    <div className="max-w-7xl mx-auto space-y-8 pb-20">
+    <div className="max-w-7xl mx-auto space-y-8 pb-20 text-left">
       {/* Encabezado */}
       <section className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
         <div>
@@ -445,7 +429,7 @@ export default function Inventario() {
         )}
       </div>
 
-      {/* MODAL PRODUCTO (Sin cambios en lógica interna, solo UI) */}
+      {/* MODAL PRODUCTO */}
       {isModalOpen && (
         <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4 text-left">
           <div className="bg-white dark:bg-neutral-900 w-full max-w-xl rounded-2xl shadow-2xl overflow-hidden animate-in fade-in zoom-in duration-200 border border-neutral-200 dark:border-neutral-800">
@@ -460,7 +444,7 @@ export default function Inventario() {
 
                 <form onSubmit={handleSave} className="grid grid-cols-1 md:grid-cols-2 gap-5">
                   <div className="md:col-span-1">
-                    <label className="block text-[10px] font-black uppercase tracking-widest text-neutral-400 mb-2 font-mono italic text-left">Código / SKU (Manual)</label>
+                    <label className="block text-[10px] font-black uppercase tracking-widest text-neutral-400 mb-2 font-mono italic text-left">Código / SKU</label>
                     <input 
                       type="text" 
                       className="w-full bg-neutral-50 dark:bg-neutral-800 border-none rounded-xl px-4 py-3 text-sm focus:ring-2 focus:ring-black dark:focus:ring-white transition-all font-bold placeholder:font-normal"
