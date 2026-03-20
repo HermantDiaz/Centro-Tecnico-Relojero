@@ -37,6 +37,7 @@ export default function Inventario() {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [nuevaCategoriaNombre, setNuevaCategoriaNombre] = useState("");
   const [valuacionTotal, setValuacionTotal] = useState(0);
+  const [ventaPotencial, setVentaPotencial] = useState(0);
 
   // Estado para el producto (UI)
   const [nuevoProducto, setNuevoProducto] = useState({
@@ -85,9 +86,27 @@ export default function Inventario() {
     if (error) {
       console.error("Error fetching inventory:", error);
     } else {
-      setProductos(prodData || []);
-      const total = (prodData || []).reduce((acc: number, curr: any) => acc + (curr.precio_compra * curr.stock_actual), 0);
-      setValuacionTotal(total);
+      // Parsear SKU del nombre [SKU] Nombre
+      const parsedProducts = (prodData || []).map((p: any) => {
+        let sku = "";
+        let realName = p.nombre;
+        if (p.nombre && p.nombre.startsWith("[")) {
+          const endBracket = p.nombre.indexOf("]");
+          if (endBracket > -1) {
+            sku = p.nombre.substring(1, endBracket);
+            realName = p.nombre.substring(endBracket + 1).trim();
+          }
+        }
+        return { ...p, codigo: sku, nombre: realName };
+      });
+
+      setProductos(parsedProducts);
+      
+      const totalCost = (prodData || []).reduce((acc: number, curr: any) => acc + (curr.precio_compra * curr.stock_actual), 0);
+      const totalPotential = (prodData || []).reduce((acc: number, curr: any) => acc + (curr.precio_venta * curr.stock_actual), 0);
+      
+      setValuacionTotal(totalCost);
+      setVentaPotencial(totalPotential);
     }
     setLoading(false);
   }
@@ -96,10 +115,21 @@ export default function Inventario() {
     e.preventDefault();
     setSaving(true);
 
-    const { alerta_activa, ...datosAEnviar } = nuevoProducto;
+    const nombreCompuesto = nuevoProducto.codigo 
+      ? `[${nuevoProducto.codigo}] ${nuevoProducto.nombre}` 
+      : nuevoProducto.nombre;
+
     const finalData = {
-      ...datosAEnviar,
-      stock_minimo: alerta_activa ? nuevoProducto.stock_minimo : -1
+      nombre: nombreCompuesto,
+      marca: nuevoProducto.marca,
+      modelo: nuevoProducto.modelo,
+      precio_compra: nuevoProducto.precio_compra,
+      precio_venta: nuevoProducto.precio_venta,
+      stock_actual: nuevoProducto.stock_actual,
+      stock_minimo: nuevoProducto.alerta_activa ? nuevoProducto.stock_minimo : -1,
+      categoria_id: nuevoProducto.categoria_id,
+      estado: nuevoProducto.estado,
+      es_vendible: nuevoProducto.es_vendible
     };
 
     if (editingId) {
@@ -129,6 +159,23 @@ export default function Inventario() {
       }
     }
     setSaving(false);
+  }
+
+  async function handleDelete(id: string, nombre: string) {
+    if (!window.confirm(`¿Estás seguro de que deseas eliminar "${nombre}"? Esta acción no se puede deshacer.`)) {
+      return;
+    }
+
+    const { error } = await supabase
+      .from("inventario")
+      .delete()
+      .eq("id", id);
+
+    if (error) {
+      alert("Error al eliminar: " + error.message);
+    } else {
+      fetchData();
+    }
   }
 
   async function handleAddCategory(e: React.FormEvent) {
@@ -168,7 +215,7 @@ export default function Inventario() {
     setEditingId(null);
   }
 
-  function openEdit(prod: any) {
+  function openEdit(prod: Producto) {
     setEditingId(prod.id);
     setNuevoProducto({
       codigo: prod.codigo || "",
@@ -181,7 +228,7 @@ export default function Inventario() {
       stock_minimo: prod.stock_minimo === -1 ? 5 : prod.stock_minimo,
       categoria_id: prod.categoria_id,
       estado: prod.estado,
-      es_vendible: prod.es_vendible,
+      es_vendible: (prod as any).es_vendible ?? true,
       alerta_activa: prod.stock_minimo !== -1
     });
     setIsModalOpen(true);
@@ -195,14 +242,19 @@ export default function Inventario() {
           <h1 className="text-3xl font-bold text-neutral-900 dark:text-white mb-2 tracking-tight">
             📦 Inventario
           </h1>
-          <div className="flex items-center gap-4 text-sm">
+          <div className="flex flex-wrap items-center gap-3 text-sm">
             <p className="text-neutral-500 dark:text-neutral-400 font-medium">
               Gestión de stock y repuestos.
             </p>
-            <div className="h-4 w-[1px] bg-neutral-200 dark:bg-neutral-800"></div>
-            <p className="text-xs font-bold text-neutral-900 dark:text-white uppercase tracking-widest bg-neutral-100 dark:bg-neutral-900 px-3 py-1 rounded-full border border-neutral-200 dark:border-neutral-800">
-              Valuación: <span className="text-green-600 dark:text-green-400 ml-1">${valuacionTotal.toLocaleString()}</span>
-            </p>
+            <div className="hidden md:block h-4 w-[1px] bg-neutral-200 dark:bg-neutral-800"></div>
+            <div className="flex gap-2">
+              <p className="text-[10px] font-black text-neutral-500 dark:text-neutral-400 uppercase tracking-widest bg-neutral-100 dark:bg-neutral-900 px-3 py-1 rounded-full border border-neutral-200 dark:border-neutral-800">
+                Inversión: <span className="text-neutral-900 dark:text-white ml-1">${valuacionTotal.toLocaleString()}</span>
+              </p>
+              <p className="text-[10px] font-black text-green-600 dark:text-green-400 uppercase tracking-widest bg-green-50 dark:bg-green-950/30 px-3 py-1 rounded-full border border-green-100 dark:border-green-900/50">
+                Venta Potencial: <span className="ml-1">${ventaPotencial.toLocaleString()}</span>
+              </p>
+            </div>
           </div>
         </div>
         <button 
@@ -276,9 +328,11 @@ export default function Inventario() {
                     <td className="px-6 py-5">
                       <div className="flex flex-col">
                         <div className="flex items-center gap-2">
-                          <span className="text-[10px] font-black text-neutral-400 font-mono bg-neutral-50 dark:bg-neutral-800 px-1.5 py-0.5 rounded border border-neutral-200 dark:border-neutral-700">
-                            {prod.codigo || 'S/C'}
-                          </span>
+                          {prod.codigo && (
+                            <span className="text-[10px] font-black text-neutral-400 font-mono bg-neutral-50 dark:bg-neutral-800 px-1.5 py-0.5 rounded border border-neutral-200 dark:border-neutral-700">
+                              {prod.codigo}
+                            </span>
+                          )}
                           <span className="font-bold text-neutral-900 dark:text-white capitalize group-hover:text-black dark:group-hover:text-white">
                             {prod.nombre}
                           </span>
@@ -313,12 +367,22 @@ export default function Inventario() {
                       </span>
                     </td>
                     <td className="px-6 py-5 text-right">
-                      <button 
-                        onClick={() => openEdit(prod)}
-                        className="p-2 hover:bg-neutral-100 dark:hover:bg-neutral-800 rounded-lg transition-all text-neutral-400 hover:text-black dark:hover:text-white"
-                      >
-                        ✏️
-                      </button>
+                      <div className="flex justify-end gap-1">
+                        <button 
+                          onClick={() => openEdit(prod)}
+                          title="Editar"
+                          className="p-2 hover:bg-neutral-100 dark:hover:bg-neutral-800 rounded-lg transition-all text-neutral-400 hover:text-black dark:hover:text-white"
+                        >
+                          ✏️
+                        </button>
+                        <button 
+                          onClick={() => handleDelete(prod.id, prod.nombre)}
+                          title="Eliminar"
+                          className="p-2 hover:bg-red-50 dark:hover:bg-red-950/30 rounded-lg transition-all text-neutral-400 hover:text-red-600 dark:hover:text-red-400"
+                        >
+                          🗑️
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 ))}
@@ -484,7 +548,7 @@ export default function Inventario() {
       {/* MODAL CATEGORIA */}
       {isCategoryModalOpen && (
         <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[60] flex items-center justify-center p-4">
-          <div className="bg-white dark:bg-neutral-900 w-full max-w-sm rounded-3xl p-8 border border-neutral-200 dark:border-neutral-800 shadow-2xl">
+          <div className="bg-white dark:bg-neutral-900 w-full max-sm rounded-3xl p-8 border border-neutral-200 dark:border-neutral-800 shadow-2xl">
             <div className="flex justify-between items-center mb-6">
               <h2 className="text-xl font-black text-neutral-900 dark:text-white">🏷️ Nueva Categoría</h2>
               <button onClick={() => setIsCategoryModalOpen(false)} className="text-neutral-400 hover:text-black font-black">✕</button>

@@ -105,14 +105,20 @@ export default function Dashboard() {
           </div>
         </div>
 
-        {/* Alertas de Stock (Real) */}
-        <div className="p-6 bg-white dark:bg-neutral-900 border border-neutral-200 dark:border-neutral-800 rounded-2xl shadow-sm">
-          <p className="text-xs font-bold text-neutral-500 dark:text-neutral-400 uppercase tracking-wider mb-2">Stock Bajo</p>
+        {/* Alertas de Stock (Real) - Enlace a Inventario */}
+        <Link 
+          href="/inventario"
+          className="p-6 bg-white dark:bg-neutral-900 border border-neutral-200 dark:border-neutral-800 rounded-2xl shadow-sm hover:scale-[1.02] active:scale-[0.98] transition-all cursor-pointer group"
+        >
+          <div className="flex justify-between items-start mb-2">
+            <p className="text-xs font-bold text-neutral-500 dark:text-neutral-400 uppercase tracking-wider">Stock Bajo</p>
+            <span className="text-xs opacity-0 group-hover:opacity-100 transition-opacity">Ir →</span>
+          </div>
           <p className={`text-2xl font-black ${stats.stockBajo > 0 ? 'text-red-500' : 'text-neutral-900 dark:text-white'}`}>
             {stats.stockBajo}
           </p>
           <div className="mt-2 text-xs text-neutral-500 italic">Productos en alerta</div>
-        </div>
+        </Link>
 
         {/* Deudas Totales */}
         <div className="p-6 bg-white dark:bg-neutral-900 border border-neutral-200 dark:border-neutral-800 rounded-2xl shadow-sm">
