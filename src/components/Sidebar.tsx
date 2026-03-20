@@ -6,11 +6,11 @@ import Image from "next/image";
 import { useAuth } from "./AuthProvider";
 
 const NAV_ITEMS = [
-  { label: "Dashboard", icon: "📊", path: "/" },
-  { label: "Inventario", icon: "📦", path: "/inventario" },
-  { label: "Reparaciones", icon: "🛠️", path: "/reparaciones" },
-  { label: "Caja / Finanzas", icon: "💰", path: "/finanzas" },
-  { label: "Deudas", icon: "🤝", path: "/deudas" },
+  { label: "Dashboard", icon: "📊", path: "/", roles: ["admin", "recepcion", "tecnico"] },
+  { label: "Inventario", icon: "📦", path: "/inventario", roles: ["admin", "recepcion", "tecnico"] },
+  { label: "Reparaciones", icon: "🛠️", path: "/reparaciones", roles: ["admin", "recepcion", "tecnico"] },
+  { label: "Caja / Finanzas", icon: "💰", path: "/finanzas", roles: ["admin"] },
+  { label: "Deudas", icon: "🤝", path: "/deudas", roles: ["admin"] },
 ];
 
 const ADMIN_ITEMS = [
@@ -50,7 +50,7 @@ export default function Sidebar() {
 
       {/* Navigation Links */}
       <nav className="flex-1 px-4 space-y-2 overflow-y-auto custom-scrollbar">
-        {NAV_ITEMS.map((item) => {
+        {NAV_ITEMS.filter(item => (item.roles as string[]).includes(rol as string)).map((item) => {
           const isActive = pathname === item.path;
           return (
             <Link 
@@ -101,15 +101,17 @@ export default function Sidebar() {
       <div className="p-4 border-t border-neutral-100 dark:border-neutral-900 mt-auto bg-white dark:bg-black">
         <div className="bg-neutral-50 dark:bg-neutral-900/50 rounded-3xl p-4 border border-neutral-100 dark:border-neutral-800/50 min-h-[140px] flex flex-col justify-between shadow-sm">
           <div className="flex items-center gap-3">
-            <div className="flex-shrink-0 w-10 h-10 bg-neutral-900 dark:bg-white rounded-2xl flex items-center justify-center text-white dark:text-black font-black text-xs shadow-lg uppercase">
-              {user?.email?.substring(0, 1) || "A"}
+            <div className={`flex-shrink-0 w-10 h-10 rounded-2xl flex items-center justify-center font-black text-xs shadow-lg uppercase ${
+              user ? 'bg-neutral-900 text-white dark:bg-white dark:text-black' : 'bg-neutral-200 text-neutral-400'
+            }`}>
+              {user?.email?.substring(0, 1) || "?"}
             </div>
             <div className="flex flex-col min-w-0">
-              <span className="text-xs font-black text-neutral-900 dark:text-white truncate" title={user?.email || "Administrador"}>
-                {user?.email?.split('@')[0] || "Administrador"}
+              <span className="text-xs font-black text-neutral-900 dark:text-white truncate" title={user?.email || "Invitado"}>
+                {user?.email?.split('@')[0] || "Sesión no iniciada"}
               </span>
-              <span className={`text-[9px] font-black uppercase tracking-widest mt-0.5 ${rol === 'admin' ? 'text-amber-600 dark:text-amber-400' : 'text-neutral-400'}`}>
-                {getRoleLabel(rol)}
+              <span className={`text-[9px] font-black uppercase tracking-widest mt-0.5 ${rol ? 'text-amber-600 dark:text-amber-400' : 'text-neutral-400'}`}>
+                {rol ? getRoleLabel(rol) : '---'}
               </span>
             </div>
           </div>

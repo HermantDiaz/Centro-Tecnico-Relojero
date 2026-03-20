@@ -69,15 +69,26 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
       setLoading(false);
 
       if (!session && pathname !== "/login") {
-        router.push("/login");
+        router.replace("/login");
+        // Failsafe: Si el router de Next falla en redirigir una página protegida
+        setTimeout(() => {
+          if (window.location.pathname !== "/login") window.location.href = "/login";
+        }, 500);
       }
     };
 
     checkUser();
 
+    // Failsafe: Máximo 5 segundos de carga inicial
+    const timeout = setTimeout(() => {
+      setLoading(false);
+    }, 5000);
+
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
       async (event, session) => {
         if (session) {
+          // Establecer usuario básico de inmediato para evitar estados nulos
+          setUser(session.user);
           const profile = await fetchUserProfile(session.user.id);
           if (profile) {
             if (!profile.activo) {
@@ -87,10 +98,12 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
               setActivo(false);
               router.push("/login?error=Cuenta desactivada.");
             } else {
-              setUser(session.user);
               setRol(profile.rol);
               setActivo(true);
             }
+          } else {
+              // Si no hay perfil, lo tratamos como técnico por seguridad o lo expulsamos
+              setRol('tecnico'); 
           }
         } else {
           setUser(null);
@@ -100,17 +113,41 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
         setLoading(false);
         
         if (!session && pathname !== "/login") {
-          router.push("/login");
+          router.replace("/login");
         }
       }
     );
 
-    return () => subscription.unsubscribe();
+    return () => {
+      subscription.unsubscribe();
+      clearTimeout(timeout);
+    };
   }, [pathname, router]);
 
+  // Nuevo efecto: Si estamos en /login, NUNCA debemos estar en loading permanentemente
+  useEffect(() => {
+    if (pathname === "/login") {
+      setLoading(false);
+    }
+  }, [pathname]);
+
   const signOut = async () => {
-    await supabase.auth.signOut();
-    router.push("/login");
+    try {
+      await supabase.auth.signOut();
+      setUser(null);
+      setRol(null);
+      setActivo(true);
+      router.replace("/login");
+      // Failsafe: Hard redirect
+      setTimeout(() => {
+        if (window.location.pathname !== "/login") {
+          window.location.href = "/login";
+        }
+      }, 1000);
+    } catch (err) {
+      console.error("Error signing out:", err);
+      window.location.href = "/login";
+    }
   };
 
   return (
@@ -118,8 +155,8 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
       {loading ? (
         <div className="fixed inset-0 bg-white dark:bg-black z-[100] flex flex-col items-center justify-center p-8 text-center">
             <div className="w-16 h-16 border-4 border-neutral-100 dark:border-neutral-900 border-t-neutral-900 dark:border-t-neutral-100 rounded-full animate-spin mb-6"></div>
-            <h2 className="text-xl font-black text-neutral-900 dark:text-white tracking-widest uppercase italic">Relojería IA</h2>
-            <p className="text-neutral-500 dark:text-neutral-400 text-sm mt-2 font-medium">Validando integridad de acceso...</p>
+            <h2 className="text-xl font-black text-neutral-900 dark:text-white tracking-widest uppercase italic border-r-4 border-neutral-900 dark:border-white pr-4">Relojería IA</h2>
+            <p className="text-neutral-500 dark:text-neutral-400 text-xs mt-4 font-bold uppercase tracking-[0.4em] animate-pulse">Sincronizando seguridad...</p>
         </div>
       ) : (
         children

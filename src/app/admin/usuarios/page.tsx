@@ -42,6 +42,18 @@ export default function GestionUsuarios() {
     e.preventDefault();
     if (!editingUser) return;
 
+    // Seguridad: No permitir que el admin se desactive a sí mismo o cambie su rol
+    if (editingUser.id === currentUser?.id) {
+       if (!editingUser.activo) {
+         alert("No puedes desactivar tu propia cuenta administrativa.");
+         return;
+       }
+       if (editingUser.rol !== 'admin') {
+         alert("No puedes degradar tu propio rol. Pide a otro administrador que lo haga si es necesario.");
+         return;
+       }
+    }
+
     const { error } = await supabase
       .from("perfiles")
       .update({

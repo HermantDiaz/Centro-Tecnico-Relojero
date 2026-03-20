@@ -2,9 +2,11 @@
 
 import { useEffect, useState } from "react";
 import { supabase } from "@/lib/supabase";
+import { useAuth } from "@/components/AuthProvider";
 import Link from "next/link";
 
 export default function Dashboard() {
+  const { user, rol, loading: authLoading } = useAuth();
   const [stats, setStats] = useState({
     stockBajo: 0,
     valuacion: 0,
@@ -16,42 +18,54 @@ export default function Dashboard() {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    fetchDashboardData();
-  }, []);
+    if (!authLoading && user) {
+      fetchDashboardData();
+    }
+  }, [authLoading, user]);
 
   async function fetchDashboardData() {
     setLoading(true);
-    
-    // 1. Stock Bajo (Sincronizado con Inventario)
-    const { data: invAll } = await supabase
-      .from("inventario")
-      .select("stock_actual, stock_minimo");
-    
-    const stockBajoCount = invAll?.filter(p => p.stock_minimo !== -1 && p.stock_actual <= p.stock_minimo).length || 0;
-    
-    // 2. Valuación (Suma de precio_compra * stock)
-    const { data: invData } = await supabase
-      .from("inventario")
-      .select("precio_compra, stock_actual");
-    
-    const totalValuacion = invData?.reduce((acc: number, curr: { precio_compra: number; stock_actual: number }) => 
-      acc + (curr.precio_compra * curr.stock_actual), 0) || 0;
-
-    // 3. Actividad Reciente (Últimos 3 productos)
-    const { data: recents } = await supabase
-      .from("inventario")
-      .select("nombre, created_at")
-      .order("created_at", { ascending: false })
-      .limit(3);
-
-    setStats(prev => ({
-      ...prev,
-      stockBajo: stockBajoCount,
-      valuacion: totalValuacion
-    }));
-
-    if (recents) setActividad(recents);
-    setLoading(false);
+    try {
+      // 1. Stock Bajo (Sincronizado con Inventario)
+      const { data: invAll, error: err1 } = await supabase
+        .from("inventario")
+        .select("stock_actual, stock_minimo");
+      
+      if (err1) throw err1;
+      
+      const stockBajoCount = invAll?.filter(p => p.stock_minimo !== -1 && p.stock_actual <= p.stock_minimo).length || 0;
+      
+      // 2. Valuación (Suma de precio_compra * stock)
+      const { data: invData, error: err2 } = await supabase
+        .from("inventario")
+        .select("precio_compra, stock_actual");
+      
+      if (err2) throw err2;
+      
+      const totalValuacion = invData?.reduce((acc: number, curr: { precio_compra: number; stock_actual: number }) => 
+        acc + ((curr.precio_compra || 0) * (curr.stock_actual || 0)), 0) || 0;
+  
+      // 3. Actividad Reciente (Últimos 3 productos)
+      const { data: recents, error: err3 } = await supabase
+        .from("inventario")
+        .select("nombre, created_at")
+        .order("created_at", { ascending: false })
+        .limit(3);
+  
+      if (err3) throw err3;
+  
+      setStats(prev => ({
+        ...prev,
+        stockBajo: stockBajoCount,
+        valuacion: totalValuacion
+      }));
+  
+      if (recents) setActividad(recents);
+    } catch (error: any) {
+      console.error("Error cargando Dashboard:", error);
+    } finally {
+      setLoading(false);
+    }
   }
 
   return (
@@ -67,13 +81,22 @@ export default function Dashboard() {
           </p>
         </div>
         <div className="flex flex-row gap-2 md:gap-4 shrink-0 overflow-x-auto pb-2 md:pb-0 scrollbar-hide">
-          <button className="whitespace-nowrap px-4 py-2.5 bg-neutral-900 dark:bg-white text-white dark:text-black rounded-xl font-bold text-xs md:text-sm hover:scale-105 transition-all shadow-lg min-w-max">
+          <button 
+            onClick={() => alert("Módulo de Reparaciones: Próximamente disponible en la siguiente fase de desarrollo. 🛠️")}
+            className="whitespace-nowrap px-4 py-2.5 bg-neutral-900 dark:bg-white text-white dark:text-black rounded-xl font-bold text-xs md:text-sm hover:scale-105 transition-all shadow-lg min-w-max"
+          >
             ✨ Nueva Reparación
           </button>
-          <button className="whitespace-nowrap px-4 py-2.5 bg-white dark:bg-neutral-800 border border-neutral-200 dark:border-neutral-700 text-neutral-900 dark:text-white rounded-xl font-bold text-xs md:text-sm hover:bg-neutral-50 dark:hover:bg-neutral-700 transition-all shadow-sm min-w-max">
+          <button 
+            onClick={() => alert("Módulo de Finanzas: El registro de ingresos estará disponible próximamente. 💰")}
+            className="whitespace-nowrap px-4 py-2.5 bg-white dark:bg-neutral-800 border border-neutral-200 dark:border-neutral-800 text-neutral-900 dark:text-white rounded-xl font-bold text-xs md:text-sm hover:bg-neutral-50 dark:hover:bg-neutral-700 transition-all shadow-sm min-w-max"
+          >
             💰 Registrar Ingreso
           </button>
-          <button className="whitespace-nowrap px-4 py-2.5 bg-red-50 dark:bg-red-950/30 border border-red-100 dark:border-red-900/50 text-red-600 dark:text-red-400 rounded-xl font-bold text-xs md:text-sm hover:bg-red-100 dark:hover:bg-red-900/50 transition-all shadow-sm min-w-max">
+          <button 
+            onClick={() => alert("Módulo de Finanzas: El registro de gastos estará disponible próximamente. 📈")}
+            className="whitespace-nowrap px-4 py-2.5 bg-red-50 dark:bg-red-950/30 border border-red-100 dark:border-red-900/50 text-red-600 dark:text-red-400 rounded-xl font-bold text-xs md:text-sm hover:bg-red-100 dark:hover:bg-red-900/50 transition-all shadow-sm min-w-max"
+          >
             📉 Registrar Gasto
           </button>
         </div>
@@ -81,21 +104,25 @@ export default function Dashboard() {
 
       {/* Tarjetas de Resumen (Stats Profesionales) */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-6">
-        {/* Flujo de Caja (Placeholder operativo) */}
-        <div className="p-6 bg-white dark:bg-neutral-900 border border-neutral-200 dark:border-neutral-800 rounded-2xl shadow-sm">
-          <p className="text-xs font-bold text-neutral-500 dark:text-neutral-400 uppercase tracking-wider mb-2">Flujo de Caja</p>
-          <p className="text-2xl font-black text-neutral-900 dark:text-white">$0.00</p>
-          <div className="mt-2 text-xs text-neutral-500 italic">Efectivo total disponible</div>
-        </div>
+        {/* Flujo de Caja (Solo Admin) */}
+        {rol === 'admin' && (
+          <div className="p-6 bg-white dark:bg-neutral-900 border border-neutral-200 dark:border-neutral-800 rounded-2xl shadow-sm">
+            <p className="text-xs font-bold text-neutral-500 dark:text-neutral-400 uppercase tracking-wider mb-2">Flujo de Caja</p>
+            <p className="text-2xl font-black text-neutral-900 dark:text-white">$0.00</p>
+            <div className="mt-2 text-xs text-neutral-500 italic">Efectivo total disponible</div>
+          </div>
+        )}
 
-        {/* Ingresos del Mes */}
-        <div className="p-6 bg-white dark:bg-neutral-900 border border-neutral-200 dark:border-neutral-800 rounded-2xl shadow-sm">
-          <p className="text-xs font-bold text-neutral-500 dark:text-neutral-400 uppercase tracking-wider mb-2">Ingresos Mes</p>
-          <p className="text-2xl font-black text-neutral-900 dark:text-white">$0.00</p>
-          <div className="mt-2 text-xs text-green-500 font-medium">↑ 0% vs mes pasado</div>
-        </div>
+        {/* Ingresos del Mes (Solo Admin) */}
+        {rol === 'admin' && (
+          <div className="p-6 bg-white dark:bg-neutral-900 border border-neutral-200 dark:border-neutral-800 rounded-2xl shadow-sm">
+            <p className="text-xs font-bold text-neutral-500 dark:text-neutral-400 uppercase tracking-wider mb-2">Ingresos Mes</p>
+            <p className="text-2xl font-black text-neutral-900 dark:text-white">$0.00</p>
+            <div className="mt-2 text-xs text-green-500 font-medium">↑ 0% vs mes pasado</div>
+          </div>
+        )}
         
-        {/* Reparaciones Activas / Alertas */}
+        {/* Reparaciones Activas / Alertas (Todos) */}
         <div className="p-6 bg-white dark:bg-neutral-900 border border-neutral-200 dark:border-neutral-800 rounded-2xl shadow-sm">
           <p className="text-xs font-bold text-neutral-500 dark:text-neutral-400 uppercase tracking-wider mb-2">Taller (Activas)</p>
           <p className="text-2xl font-black text-neutral-900 dark:text-white">0</p>
@@ -105,27 +132,31 @@ export default function Dashboard() {
           </div>
         </div>
 
-        {/* Alertas de Stock (Real) - Enlace a Inventario */}
-        <Link 
-          href="/inventario"
-          className="p-6 bg-white dark:bg-neutral-900 border border-neutral-200 dark:border-neutral-800 rounded-2xl shadow-sm hover:scale-[1.02] active:scale-[0.98] transition-all cursor-pointer group"
-        >
-          <div className="flex justify-between items-start mb-2">
-            <p className="text-xs font-bold text-neutral-500 dark:text-neutral-400 uppercase tracking-wider">Stock Bajo</p>
-            <span className="text-xs opacity-0 group-hover:opacity-100 transition-opacity">Ir →</span>
-          </div>
-          <p className={`text-2xl font-black ${stats.stockBajo > 0 ? 'text-red-500' : 'text-neutral-900 dark:text-white'}`}>
-            {stats.stockBajo}
-          </p>
-          <div className="mt-2 text-xs text-neutral-500 italic">Productos en alerta</div>
-        </Link>
+        {/* Alertas de Stock (Admin y Recepcion) */}
+        {rol !== 'tecnico' && (
+          <Link 
+            href="/inventario"
+            className="p-6 bg-white dark:bg-neutral-900 border border-neutral-200 dark:border-neutral-800 rounded-2xl shadow-sm hover:scale-[1.02] active:scale-[0.98] transition-all cursor-pointer group"
+          >
+            <div className="flex justify-between items-start mb-2">
+              <p className="text-xs font-bold text-neutral-500 dark:text-neutral-400 uppercase tracking-wider">Stock Bajo</p>
+              <span className="text-xs opacity-0 group-hover:opacity-100 transition-opacity">Ir →</span>
+            </div>
+            <p className={`text-2xl font-black ${stats.stockBajo > 0 ? 'text-red-500' : 'text-neutral-900 dark:text-white'}`}>
+              {stats.stockBajo}
+            </p>
+            <div className="mt-2 text-xs text-neutral-500 italic">Productos en alerta</div>
+          </Link>
+        )}
 
-        {/* Deudas Totales */}
-        <div className="p-6 bg-white dark:bg-neutral-900 border border-neutral-200 dark:border-neutral-800 rounded-2xl shadow-sm">
-          <p className="text-xs font-bold text-neutral-500 dark:text-neutral-400 uppercase tracking-wider mb-2">Total Deudas</p>
-          <p className="text-2xl font-black text-neutral-900 dark:text-white">$0.00</p>
-          <div className="mt-2 text-xs text-amber-500 font-medium">Por cobrar y pagar</div>
-        </div>
+        {/* Deudas Totales (Solo Admin) */}
+        {rol === 'admin' && (
+          <div className="p-6 bg-white dark:bg-neutral-900 border border-neutral-200 dark:border-neutral-800 rounded-2xl shadow-sm">
+            <p className="text-xs font-bold text-neutral-500 dark:text-neutral-400 uppercase tracking-wider mb-2">Total Deudas</p>
+            <p className="text-2xl font-black text-neutral-900 dark:text-white">$0.00</p>
+            <div className="mt-2 text-xs text-amber-500 font-medium">Por cobrar y pagar</div>
+          </div>
+        )}
       </div>
 
       {/* Secciones de Detalle */}

@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { supabase } from "@/lib/supabase";
 import Link from "next/link";
+import { useAuth } from "@/components/AuthProvider";
 
 interface Producto {
   id: string;
@@ -58,47 +59,54 @@ export default function Inventario() {
     alerta_activa: true
   });
 
+  const { user, rol, loading: authLoading } = useAuth();
+
   useEffect(() => {
-    fetchData();
-  }, [filtroCategoria]);
+    if (!authLoading && user) {
+      fetchData();
+    }
+  }, [filtroCategoria, authLoading, user]);
 
   async function fetchData() {
     setLoading(true);
-    
-    // Fetch Categorías
-    const { data: catData } = await supabase.from("categorias").select("id, nombre");
-    if (catData) setCategorias(catData);
+    try {
+      // Fetch Categorías
+      const { data: catData, error: catError } = await supabase.from("categorias").select("id, nombre");
+      if (catError) throw catError;
+      if (catData) setCategorias(catData);
 
-    // Fetch Productos
-    let query = supabase
-      .from("inventario")
-      .select(`
-        *,
-        categorias (
-          nombre
-        )
-      `)
-      .order("created_at", { ascending: false });
+      // Fetch Productos
+      let query = supabase
+        .from("inventario")
+        .select(`
+          *,
+          categorias (
+            nombre
+          )
+        `)
+        .order("created_at", { ascending: false });
 
-    if (filtroCategoria !== "todas") {
-      query = query.eq("categoria_id", filtroCategoria);
-    }
+      if (filtroCategoria !== "todas") {
+        query = query.eq("categoria_id", filtroCategoria);
+      }
 
-    const { data: prodData, error } = await query;
-    
-    if (error) {
-      console.error("Error fetching inventory:", error);
-    } else {
+      const { data: prodData, error } = await query;
+      
+      if (error) throw error;
+
       // Ahora usamos la columna 'codigo' directamente de la DB
       setProductos(prodData || []);
       
-      const totalCost = (prodData || []).reduce((acc: number, curr: any) => acc + (curr.precio_compra * curr.stock_actual), 0);
-      const totalPotential = (prodData || []).reduce((acc: number, curr: any) => acc + (curr.precio_venta * curr.stock_actual), 0);
+      const totalCost = (prodData || []).reduce((acc: number, curr: any) => acc + ((curr.precio_compra || 0) * (curr.stock_actual || 0)), 0);
+      const totalPotential = (prodData || []).reduce((acc: number, curr: any) => acc + ((curr.precio_venta || 0) * (curr.stock_actual || 0)), 0);
       
       setValuacionTotal(totalCost);
       setVentaPotencial(totalPotential);
+    } catch (error: any) {
+      console.error("Error crítico en fetchData:", error);
+    } finally {
+      setLoading(false);
     }
-    setLoading(false);
   }
 
   // Filtrado local por término de búsqueda
@@ -116,6 +124,14 @@ export default function Inventario() {
     e.preventDefault();
 
     // Validaciones de Seguridad
+    if (nuevoProducto.codigo && !editingId) {
+      const isDuplicate = productos.some(p => p.codigo === nuevoProducto.codigo);
+      if (isDuplicate) {
+        alert("Ya existe un producto con este código (SKU). Por favor usa uno único.");
+        return;
+      }
+    }
+
     if (nuevoProducto.precio_compra < 0 || nuevoProducto.precio_venta < 0) {
       alert("Los precios no pueden ser negativos.");
       return;
@@ -277,12 +293,14 @@ export default function Inventario() {
             </div>
           </div>
         </div>
-        <button 
-          onClick={() => { resetForm(); setIsModalOpen(true); }}
-          className="px-6 py-2.5 bg-black dark:bg-white text-white dark:text-black rounded-xl font-bold text-sm hover:scale-105 transition-all shadow-lg flex items-center gap-2"
-        >
-          <span>➕ Nuevo Producto</span>
-        </button>
+        {rol !== 'tecnico' && (
+          <button 
+            onClick={() => { resetForm(); setIsModalOpen(true); }}
+            className="px-6 py-2.5 bg-black dark:bg-white text-white dark:text-black rounded-xl font-bold text-sm hover:scale-105 transition-all shadow-lg flex items-center gap-2"
+          >
+            <span>➕ Nuevo Producto</span>
+          </button>
+        )}
       </section>
 
       {/* Barra de Búsqueda y Filtros */}
@@ -404,22 +422,24 @@ export default function Inventario() {
                       </span>
                     </td>
                     <td className="px-6 py-5 text-right">
-                      <div className="flex justify-end gap-1">
-                        <button 
-                          onClick={() => openEdit(prod)}
-                          title="Editar"
-                          className="p-2 hover:bg-neutral-100 dark:hover:bg-neutral-800 rounded-lg transition-all text-neutral-400 hover:text-black dark:hover:text-white shadow-sm hover:shadow-md"
-                        >
-                          ✏️
-                        </button>
-                        <button 
-                          onClick={() => confirmDelete(prod.id, prod.nombre)}
-                          title="Eliminar"
-                          className="p-2 hover:bg-red-50 dark:hover:bg-red-950/30 rounded-lg transition-all text-neutral-400 hover:text-red-600 dark:hover:text-red-400 shadow-sm hover:shadow-md"
-                        >
-                          🗑️
-                        </button>
-                      </div>
+                      {rol !== 'tecnico' && (
+                        <div className="flex justify-end gap-1">
+                          <button 
+                            onClick={() => openEdit(prod)}
+                            title="Editar"
+                            className="p-2 hover:bg-neutral-100 dark:hover:bg-neutral-800 rounded-lg transition-all text-neutral-400 hover:text-black dark:hover:text-white shadow-sm hover:shadow-md"
+                          >
+                            ✏️
+                          </button>
+                          <button 
+                            onClick={() => confirmDelete(prod.id, prod.nombre)}
+                            title="Eliminar"
+                            className="p-2 hover:bg-red-50 dark:hover:bg-red-950/30 rounded-lg transition-all text-neutral-400 hover:text-red-600 dark:hover:text-red-400 shadow-sm hover:shadow-md"
+                          >
+                            🗑️
+                          </button>
+                        </div>
+                      )}
                     </td>
                   </tr>
                 ))}
