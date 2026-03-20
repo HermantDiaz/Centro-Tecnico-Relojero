@@ -33,8 +33,10 @@ export default function Inventario() {
   const [filtroCategoria, setFiltroCategoria] = useState<string>("todas");
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isCategoryModalOpen, setIsCategoryModalOpen] = useState(false);
+  const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
   const [saving, setSaving] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
+  const [productToDelete, setProductToDelete] = useState<{id: string, nombre: string} | null>(null);
   const [nuevaCategoriaNombre, setNuevaCategoriaNombre] = useState("");
   const [valuacionTotal, setValuacionTotal] = useState(0);
   const [ventaPotencial, setVentaPotencial] = useState(0);
@@ -113,6 +115,21 @@ export default function Inventario() {
 
   async function handleSave(e: React.FormEvent) {
     e.preventDefault();
+
+    // Validaciones de Seguridad
+    if (nuevoProducto.precio_compra < 0 || nuevoProducto.precio_venta < 0) {
+      alert("Los precios no pueden ser negativos.");
+      return;
+    }
+    if (nuevoProducto.stock_actual < 0) {
+      alert("El stock no puede ser negativo.");
+      return;
+    }
+    if (nuevoProducto.alerta_activa && nuevoProducto.stock_minimo < 0) {
+      alert("El stock mínimo de alerta no puede ser negativo.");
+      return;
+    }
+
     setSaving(true);
 
     const nombreCompuesto = nuevoProducto.codigo 
@@ -161,21 +178,28 @@ export default function Inventario() {
     setSaving(false);
   }
 
-  async function handleDelete(id: string, nombre: string) {
-    if (!window.confirm(`¿Estás seguro de que deseas eliminar "${nombre}"? Esta acción no se puede deshacer.`)) {
-      return;
-    }
+  function confirmDelete(id: string, nombre: string) {
+    setProductToDelete({id, nombre});
+    setIsDeleteModalOpen(true);
+  }
 
+  async function handleDelete() {
+    if (!productToDelete) return;
+
+    setSaving(true);
     const { error } = await supabase
       .from("inventario")
       .delete()
-      .eq("id", id);
+      .eq("id", productToDelete.id);
 
     if (error) {
       alert("Error al eliminar: " + error.message);
     } else {
+      setIsDeleteModalOpen(false);
+      setProductToDelete(null);
       fetchData();
     }
+    setSaving(false);
   }
 
   async function handleAddCategory(e: React.FormEvent) {
@@ -371,14 +395,14 @@ export default function Inventario() {
                         <button 
                           onClick={() => openEdit(prod)}
                           title="Editar"
-                          className="p-2 hover:bg-neutral-100 dark:hover:bg-neutral-800 rounded-lg transition-all text-neutral-400 hover:text-black dark:hover:text-white"
+                          className="p-2 hover:bg-neutral-100 dark:hover:bg-neutral-800 rounded-lg transition-all text-neutral-400 hover:text-black dark:hover:text-white shadow-sm hover:shadow-md"
                         >
                           ✏️
                         </button>
                         <button 
-                          onClick={() => handleDelete(prod.id, prod.nombre)}
+                          onClick={() => confirmDelete(prod.id, prod.nombre)}
                           title="Eliminar"
-                          className="p-2 hover:bg-red-50 dark:hover:bg-red-950/30 rounded-lg transition-all text-neutral-400 hover:text-red-600 dark:hover:text-red-400"
+                          className="p-2 hover:bg-red-50 dark:hover:bg-red-950/30 rounded-lg transition-all text-neutral-400 hover:text-red-600 dark:hover:text-red-400 shadow-sm hover:shadow-md"
                         >
                           🗑️
                         </button>
@@ -407,7 +431,7 @@ export default function Inventario() {
 
                 <form onSubmit={handleSave} className="grid grid-cols-1 md:grid-cols-2 gap-5">
                   <div className="md:col-span-1">
-                    <label className="block text-[10px] font-black uppercase tracking-widest text-neutral-400 mb-2 font-mono italic">Código / SKU (Manual)</label>
+                    <label className="block text-[10px] font-black uppercase tracking-widest text-neutral-400 mb-2 font-mono italic text-left">Código / SKU (Manual)</label>
                     <input 
                       type="text" 
                       className="w-full bg-neutral-50 dark:bg-neutral-800 border-none rounded-xl px-4 py-3 text-sm focus:ring-2 focus:ring-black dark:focus:ring-white transition-all font-bold placeholder:font-normal"
@@ -418,7 +442,7 @@ export default function Inventario() {
                   </div>
 
                   <div className="md:col-span-1">
-                    <label className="block text-[10px] font-black uppercase tracking-widest text-neutral-400 mb-2 font-mono">Nombre</label>
+                    <label className="block text-[10px] font-black uppercase tracking-widest text-neutral-400 mb-2 font-mono text-left">Nombre</label>
                     <input 
                       required
                       type="text" 
@@ -430,7 +454,7 @@ export default function Inventario() {
                   </div>
 
                   <div>
-                    <label className="block text-[10px] font-black uppercase tracking-widest text-neutral-400 mb-2 font-mono">Marca</label>
+                    <label className="block text-[10px] font-black uppercase tracking-widest text-neutral-400 mb-2 font-mono text-left">Marca</label>
                     <input 
                       type="text" 
                       className="w-full bg-neutral-50 dark:bg-neutral-800 border-none rounded-xl px-4 py-3 text-sm focus:ring-2 focus:ring-black dark:focus:ring-white transition-all font-bold"
@@ -441,7 +465,7 @@ export default function Inventario() {
                   </div>
 
                   <div>
-                    <label className="block text-[10px] font-black uppercase tracking-widest text-neutral-400 mb-2 font-mono">Modelo</label>
+                    <label className="block text-[10px] font-black uppercase tracking-widest text-neutral-400 mb-2 font-mono text-left">Modelo</label>
                     <input 
                       type="text" 
                       className="w-full bg-neutral-50 dark:bg-neutral-800 border-none rounded-xl px-4 py-3 text-sm focus:ring-2 focus:ring-black dark:focus:ring-white transition-all font-bold"
@@ -452,7 +476,7 @@ export default function Inventario() {
                   </div>
 
                   <div>
-                    <label className="block text-[10px] font-black uppercase tracking-widest text-neutral-400 mb-2 font-mono">Categoría</label>
+                    <label className="block text-[10px] font-black uppercase tracking-widest text-neutral-400 mb-2 font-mono text-left">Categoría</label>
                     <select 
                       required
                       className="w-full bg-neutral-50 dark:bg-neutral-800 border-none rounded-xl px-4 py-3 text-sm focus:ring-2 focus:ring-black dark:focus:ring-white transition-all font-bold"
@@ -465,7 +489,7 @@ export default function Inventario() {
                   </div>
 
                   <div>
-                    <label className="block text-[10px] font-black uppercase tracking-widest text-neutral-400 mb-2 font-mono">Estado</label>
+                    <label className="block text-[10px] font-black uppercase tracking-widest text-neutral-400 mb-2 font-mono text-left">Estado</label>
                     <select 
                       className="w-full bg-neutral-50 dark:bg-neutral-800 border-none rounded-xl px-4 py-3 text-sm focus:ring-2 focus:ring-black dark:focus:ring-white transition-all font-bold"
                       value={nuevoProducto.estado}
@@ -478,9 +502,11 @@ export default function Inventario() {
                   </div>
 
                   <div>
-                    <label className="block text-[10px] font-black uppercase tracking-widest text-neutral-400 mb-2 font-mono">P. Compra</label>
+                    <label className="block text-[10px] font-black uppercase tracking-widest text-neutral-400 mb-2 font-mono text-left">P. Compra</label>
                     <input 
                       type="number" 
+                      min="0"
+                      step="0.01"
                       className="w-full bg-neutral-50 dark:bg-neutral-800 border-none rounded-xl px-4 py-3 text-sm transition-all font-bold"
                       value={nuevoProducto.precio_compra}
                       onChange={(e) => setNuevoProducto({...nuevoProducto, precio_compra: parseFloat(e.target.value)})}
@@ -488,9 +514,11 @@ export default function Inventario() {
                   </div>
 
                   <div>
-                    <label className="block text-[10px] font-black uppercase tracking-widest text-neutral-400 mb-2 font-mono">P. Venta</label>
+                    <label className="block text-[10px] font-black uppercase tracking-widest text-neutral-400 mb-2 font-mono text-left">P. Venta</label>
                     <input 
                       type="number" 
+                      min="0"
+                      step="0.01"
                       className="w-full bg-neutral-50 dark:bg-neutral-800 border-none rounded-xl px-4 py-3 text-sm transition-all font-bold text-green-600"
                       value={nuevoProducto.precio_venta}
                       onChange={(e) => setNuevoProducto({...nuevoProducto, precio_venta: parseFloat(e.target.value)})}
@@ -498,9 +526,10 @@ export default function Inventario() {
                   </div>
 
                   <div>
-                    <label className="block text-[10px] font-black uppercase tracking-widest text-neutral-400 mb-2 font-mono">Stock Act.</label>
+                    <label className="block text-[10px] font-black uppercase tracking-widest text-neutral-400 mb-2 font-mono text-left">Stock Act.</label>
                     <input 
                       type="number" 
+                      min="0"
                       className="w-full bg-neutral-50 dark:bg-neutral-800 border-none rounded-xl px-4 py-3 text-sm transition-all font-bold"
                       value={nuevoProducto.stock_actual}
                       onChange={(e) => setNuevoProducto({...nuevoProducto, stock_actual: parseInt(e.target.value)})}
@@ -508,11 +537,12 @@ export default function Inventario() {
                   </div>
 
                   <div>
-                    <label className="block text-[10px] font-black uppercase tracking-widest text-neutral-400 mb-2 font-mono">Alerta Stock</label>
+                    <label className="block text-[10px] font-black uppercase tracking-widest text-neutral-400 mb-2 font-mono text-left">Alerta Stock</label>
                     <div className="flex items-center gap-2">
                       <input 
                         disabled={!nuevoProducto.alerta_activa}
                         type="number" 
+                        min="0"
                         className={`w-16 bg-neutral-50 dark:bg-neutral-800 border-none rounded-xl px-3 py-3 text-sm font-bold ${!nuevoProducto.alerta_activa ? 'opacity-30' : ''}`}
                         value={nuevoProducto.stock_minimo}
                         onChange={(e) => setNuevoProducto({...nuevoProducto, stock_minimo: parseInt(e.target.value)})}
@@ -545,11 +575,41 @@ export default function Inventario() {
         </div>
       )}
 
+      {/* CONFIRM DELETE MODAL */}
+      {isDeleteModalOpen && (
+        <div className="fixed inset-0 bg-black/70 backdrop-blur-md z-[100] flex items-center justify-center p-4">
+          <div className="bg-white dark:bg-neutral-900 w-full max-w-sm rounded-[2.5rem] p-8 text-center border border-neutral-200 dark:border-neutral-800 shadow-2xl animate-in zoom-in fade-in duration-300">
+            <div className="w-20 h-20 bg-red-50 dark:bg-red-950/30 text-red-600 rounded-full flex items-center justify-center text-3xl mx-auto mb-6 border border-red-100 dark:border-red-900/50">
+               ⚠️
+            </div>
+            <h3 className="text-2xl font-black text-neutral-900 dark:text-white mb-2 tracking-tight">¿Eliminar Producto?</h3>
+            <p className="text-neutral-500 dark:text-neutral-400 text-sm mb-8 leading-relaxed">
+              Estás por eliminar <span className="font-black text-neutral-900 dark:text-white">"{productToDelete?.nombre}"</span>. Esta acción es definitiva y no podrá revertirse.
+            </p>
+            <div className="flex flex-col gap-3">
+              <button 
+                onClick={handleDelete}
+                disabled={saving}
+                className="w-full py-4 bg-red-600 hover:bg-red-700 text-white rounded-2xl font-black uppercase text-xs tracking-widest shadow-xl shadow-red-600/20 active:scale-95 transition-all"
+              >
+                {saving ? "ELIMINANDO..." : "SÍ, ELIMINAR AHORA"}
+              </button>
+              <button 
+                onClick={() => setIsDeleteModalOpen(false)}
+                className="w-full py-4 bg-neutral-100 dark:bg-neutral-800 text-neutral-500 dark:text-neutral-400 rounded-2xl font-black uppercase text-xs tracking-widest hover:bg-neutral-200 dark:hover:bg-neutral-700 transition-all"
+              >
+                CANCELAR
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* MODAL CATEGORIA */}
       {isCategoryModalOpen && (
         <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[60] flex items-center justify-center p-4">
           <div className="bg-white dark:bg-neutral-900 w-full max-sm rounded-3xl p-8 border border-neutral-200 dark:border-neutral-800 shadow-2xl">
-            <div className="flex justify-between items-center mb-6">
+            <div className="flex justify-between items-center mb-6 text-left">
               <h2 className="text-xl font-black text-neutral-900 dark:text-white">🏷️ Nueva Categoría</h2>
               <button onClick={() => setIsCategoryModalOpen(false)} className="text-neutral-400 hover:text-black font-black">✕</button>
             </div>
