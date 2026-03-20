@@ -6,6 +6,7 @@ import Link from "next/link";
 
 interface Producto {
   id: string;
+  codigo: string;
   nombre: string;
   marca: string;
   modelo: string;
@@ -39,6 +40,7 @@ export default function Inventario() {
 
   // Estado para el producto (UI)
   const [nuevoProducto, setNuevoProducto] = useState({
+    codigo: "",
     nombre: "",
     marca: "",
     modelo: "",
@@ -94,7 +96,6 @@ export default function Inventario() {
     e.preventDefault();
     setSaving(true);
 
-    // Preparar objeto para Supabase (eliminar alerta_activa y ajustar stock_minimo)
     const { alerta_activa, ...datosAEnviar } = nuevoProducto;
     const finalData = {
       ...datosAEnviar,
@@ -151,6 +152,7 @@ export default function Inventario() {
 
   function resetForm() {
     setNuevoProducto({
+      codigo: "",
       nombre: "",
       marca: "",
       modelo: "",
@@ -169,6 +171,7 @@ export default function Inventario() {
   function openEdit(prod: any) {
     setEditingId(prod.id);
     setNuevoProducto({
+      codigo: prod.codigo || "",
       nombre: prod.nombre,
       marca: prod.marca || "",
       modelo: prod.modelo || "",
@@ -260,7 +263,7 @@ export default function Inventario() {
             <table className="w-full text-left">
               <thead>
                 <tr className="border-b border-neutral-100 dark:border-neutral-800 bg-neutral-50/50 dark:bg-neutral-900/50">
-                  <th className="px-6 py-4 text-[10px] font-black text-neutral-400 uppercase tracking-widest">Producto</th>
+                  <th className="px-6 py-4 text-[10px] font-black text-neutral-400 uppercase tracking-widest">Código / Producto</th>
                   <th className="px-6 py-4 text-[10px] font-black text-neutral-400 uppercase tracking-widest">Detalle</th>
                   <th className="px-6 py-4 text-[10px] font-black text-neutral-400 uppercase tracking-widest">Stock</th>
                   <th className="px-6 py-4 text-[10px] font-black text-neutral-400 uppercase tracking-widest">Precio Venta</th>
@@ -272,9 +275,14 @@ export default function Inventario() {
                   <tr key={prod.id} className="hover:bg-neutral-50/50 dark:hover:bg-neutral-800/30 transition-all group">
                     <td className="px-6 py-5">
                       <div className="flex flex-col">
-                        <span className="font-bold text-neutral-900 dark:text-white capitalize group-hover:text-black dark:group-hover:text-white">
-                          {prod.nombre}
-                        </span>
+                        <div className="flex items-center gap-2">
+                          <span className="text-[10px] font-black text-neutral-400 font-mono bg-neutral-50 dark:bg-neutral-800 px-1.5 py-0.5 rounded border border-neutral-200 dark:border-neutral-700">
+                            {prod.codigo || 'S/C'}
+                          </span>
+                          <span className="font-bold text-neutral-900 dark:text-white capitalize group-hover:text-black dark:group-hover:text-white">
+                            {prod.nombre}
+                          </span>
+                        </div>
                         <span className="text-[10px] bg-neutral-100 dark:bg-neutral-800 text-neutral-500 px-2 py-0.5 rounded mt-1 w-max font-bold">
                           {prod.categorias?.nombre}
                         </span>
@@ -326,21 +334,32 @@ export default function Inventario() {
           <div className="bg-white dark:bg-neutral-900 w-full max-w-xl rounded-2xl shadow-2xl overflow-hidden animate-in fade-in zoom-in duration-200 border border-neutral-200 dark:border-neutral-800">
             <div className="max-h-[85vh] overflow-y-auto custom-scrollbar">
               <div className="p-6 md:p-8">
-                <div className="flex justify-between items-center mb-8">
+                <div className="flex justify-between items-center mb-8 border-b border-neutral-100 dark:border-neutral-800 pb-4">
                   <h2 className="text-xl font-black text-neutral-900 dark:text-white flex items-center gap-2">
                     {editingId ? "✏️ Editar Producto" : "✨ Nuevo Producto"}
                   </h2>
-                  <button onClick={() => setIsModalOpen(false)} className="text-neutral-400 hover:text-black dark:hover:text-white text-xl">✕</button>
+                  <button onClick={() => setIsModalOpen(false)} className="text-neutral-400 hover:text-black dark:hover:text-white text-xl font-bold">✕</button>
                 </div>
 
                 <form onSubmit={handleSave} className="grid grid-cols-1 md:grid-cols-2 gap-5">
-                  <div className="md:col-span-2">
+                  <div className="md:col-span-1">
+                    <label className="block text-[10px] font-black uppercase tracking-widest text-neutral-400 mb-2 font-mono italic">Código / SKU (Manual)</label>
+                    <input 
+                      type="text" 
+                      className="w-full bg-neutral-50 dark:bg-neutral-800 border-none rounded-xl px-4 py-3 text-sm focus:ring-2 focus:ring-black dark:focus:ring-white transition-all font-bold placeholder:font-normal"
+                      placeholder="Ej. BAT-101"
+                      value={nuevoProducto.codigo}
+                      onChange={(e) => setNuevoProducto({...nuevoProducto, codigo: e.target.value})}
+                    />
+                  </div>
+
+                  <div className="md:col-span-1">
                     <label className="block text-[10px] font-black uppercase tracking-widest text-neutral-400 mb-2 font-mono">Nombre</label>
                     <input 
                       required
                       type="text" 
                       className="w-full bg-neutral-50 dark:bg-neutral-800 border-none rounded-xl px-4 py-3 text-sm focus:ring-2 focus:ring-black dark:focus:ring-white transition-all font-bold"
-                      placeholder="Ej. Batería CR2032"
+                      placeholder="Nombre del artículo"
                       value={nuevoProducto.nombre}
                       onChange={(e) => setNuevoProducto({...nuevoProducto, nombre: e.target.value})}
                     />
@@ -425,7 +444,7 @@ export default function Inventario() {
                   </div>
 
                   <div>
-                    <label className="block text-[10px] font-black uppercase tracking-widest text-neutral-400 mb-2 font-mono">Alerta</label>
+                    <label className="block text-[10px] font-black uppercase tracking-widest text-neutral-400 mb-2 font-mono">Alerta Stock</label>
                     <div className="flex items-center gap-2">
                       <input 
                         disabled={!nuevoProducto.alerta_activa}
@@ -439,20 +458,20 @@ export default function Inventario() {
                         className={`flex-1 flex items-center justify-between px-3 py-3 rounded-xl border-2 cursor-pointer transition-all ${nuevoProducto.alerta_activa ? 'bg-amber-50 border-amber-200 text-amber-600' : 'bg-neutral-50 border-neutral-100 text-neutral-400 opacity-50'}`}
                       >
                         <span className="text-[9px] font-black">{nuevoProducto.alerta_activa ? 'ACTIVA' : 'OFF'}</span>
-                        <div className={`w-4 h-4 rounded-full border flex items-center justify-center transition-all ${nuevoProducto.alerta_activa ? 'bg-amber-500 border-amber-500' : 'border-neutral-300'}`}>
-                          {nuevoProducto.alerta_activa && <span className="text-[10px] text-white">✓</span>}
+                        <div className={`w-4 h-4 rounded-full border flex items-center justify-center transition-all ${nuevoProducto.alerta_activa ? 'bg-amber-500 border-amber-500 shadow-md shadow-amber-500/30' : 'border-neutral-300'}`}>
+                          {nuevoProducto.alerta_activa && <span className="text-[10px] text-white font-bold">✓</span>}
                         </div>
                       </div>
                     </div>
                   </div>
 
-                  <div className="md:col-span-2 pt-4">
+                  <div className="md:col-span-2 pt-6">
                     <button 
                       disabled={saving}
                       type="submit" 
-                      className="w-full py-4 bg-neutral-900 dark:bg-white text-white dark:text-black rounded-2xl font-black uppercase tracking-widest hover:scale-[1.02] shadow-xl"
+                      className="w-full py-4 bg-black dark:bg-white text-white dark:text-black rounded-2xl font-black uppercase tracking-widest hover:scale-[1.01] active:scale-[0.99] transition-all disabled:opacity-50 shadow-2xl"
                     >
-                      {saving ? "Procesando..." : (editingId ? "Actualizar" : "Guardar")}
+                      {saving ? "PROCESANDO..." : (editingId ? "ACTUALIZAR DATOS" : "REGISTRAR PRODUCTO")}
                     </button>
                   </div>
                 </form>
@@ -467,8 +486,8 @@ export default function Inventario() {
         <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[60] flex items-center justify-center p-4">
           <div className="bg-white dark:bg-neutral-900 w-full max-w-sm rounded-3xl p-8 border border-neutral-200 dark:border-neutral-800 shadow-2xl">
             <div className="flex justify-between items-center mb-6">
-              <h2 className="text-xl font-black text-neutral-900 dark:text-white">🏷️ Categoría</h2>
-              <button onClick={() => setIsCategoryModalOpen(false)} className="text-neutral-400 Hover:text-black">✕</button>
+              <h2 className="text-xl font-black text-neutral-900 dark:text-white">🏷️ Nueva Categoría</h2>
+              <button onClick={() => setIsCategoryModalOpen(false)} className="text-neutral-400 hover:text-black font-black">✕</button>
             </div>
             <form onSubmit={handleAddCategory} className="space-y-4">
               <input 
@@ -478,8 +497,8 @@ export default function Inventario() {
                 value={nuevaCategoriaNombre}
                 onChange={(e) => setNuevaCategoriaNombre(e.target.value)}
               />
-              <button disabled={saving} className="w-full py-3 bg-neutral-900 dark:bg-white text-white dark:text-black rounded-xl font-black uppercase text-xs tracking-widest">
-                {saving ? "Creando..." : "Crear"}
+              <button disabled={saving} className="w-full py-3 bg-black dark:bg-white text-white dark:text-black rounded-xl font-black uppercase text-xs tracking-widest hover:scale-105 active:scale-95 transition-all">
+                {saving ? "CREANDO..." : "CREAR CATEGORÍA"}
               </button>
             </form>
           </div>
@@ -489,9 +508,12 @@ export default function Inventario() {
       {/* BOTON FLOTANTE */}
       <button 
         onClick={() => setIsCategoryModalOpen(true)}
-        className="fixed bottom-8 right-8 w-14 h-14 bg-black dark:bg-white text-white dark:text-black rounded-full shadow-2xl flex items-center justify-center text-2xl hover:scale-110 active:scale-95 transition-all z-40 border-4 border-white dark:border-neutral-900"
+        className="fixed bottom-8 right-8 w-14 h-14 bg-black dark:bg-white text-white dark:text-black rounded-full shadow-2xl flex items-center justify-center text-2xl hover:scale-110 active:scale-95 transition-all z-40 border-4 border-white dark:border-neutral-900 group"
       >
-        🏷️
+        <span>🏷️</span>
+        <span className="absolute right-16 bg-black text-white text-[10px] font-bold px-3 py-1.5 rounded-lg opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap pointer-events-none shadow-xl border border-neutral-800">
+           Nueva Categoría
+        </span>
       </button>
     </div>
   );

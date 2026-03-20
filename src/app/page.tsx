@@ -22,11 +22,12 @@ export default function Dashboard() {
   async function fetchDashboardData() {
     setLoading(true);
     
-    // 1. Stock Bajo
-    const { data: stockBajoData } = await supabase
+    // 1. Stock Bajo (Sincronizado con Inventario)
+    const { data: invAll } = await supabase
       .from("inventario")
-      .select("id")
-      .lte("stock_actual", "stock_minimo");
+      .select("stock_actual, stock_minimo");
+    
+    const stockBajoCount = invAll?.filter(p => p.stock_minimo !== -1 && p.stock_actual <= p.stock_minimo).length || 0;
     
     // 2. Valuación (Suma de precio_compra * stock)
     const { data: invData } = await supabase
@@ -45,7 +46,7 @@ export default function Dashboard() {
 
     setStats(prev => ({
       ...prev,
-      stockBajo: stockBajoData?.length || 0,
+      stockBajo: stockBajoCount,
       valuacion: totalValuacion
     }));
 
