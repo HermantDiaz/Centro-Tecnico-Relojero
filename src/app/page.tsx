@@ -80,13 +80,11 @@ export default function Dashboard() {
 
       {/* Tarjetas de Resumen (Stats Profesionales) */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-6">
-        {/* Valuación de Inventario (Reemplaza Flujo de Caja temporalmente hasta tener módulo de finanzas) */}
+        {/* Flujo de Caja (Placeholder operativo) */}
         <div className="p-6 bg-white dark:bg-neutral-900 border border-neutral-200 dark:border-neutral-800 rounded-2xl shadow-sm">
-          <p className="text-xs font-bold text-neutral-500 dark:text-neutral-400 uppercase tracking-wider mb-2">Valuación Inventario</p>
-          <p className="text-2xl font-black text-neutral-900 dark:text-white">
-            ${stats.valuacion.toLocaleString()}
-          </p>
-          <div className="mt-2 text-xs text-neutral-500 italic">Costo total en mercancía</div>
+          <p className="text-xs font-bold text-neutral-500 dark:text-neutral-400 uppercase tracking-wider mb-2">Flujo de Caja</p>
+          <p className="text-2xl font-black text-neutral-900 dark:text-white">$0.00</p>
+          <div className="mt-2 text-xs text-neutral-500 italic">Efectivo total disponible</div>
         </div>
 
         {/* Ingresos del Mes */}

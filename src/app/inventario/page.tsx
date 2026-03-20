@@ -9,11 +9,13 @@ interface Producto {
   nombre: string;
   marca: string;
   modelo: string;
+  precio_compra: number;
   precio_venta: number;
   stock_actual: number;
   stock_minimo: number;
   estado: string;
   categoria_id: string;
+  alerta_activa: boolean;
   categorias?: {
     nombre: string;
   };
@@ -34,8 +36,9 @@ export default function Inventario() {
   const [saving, setSaving] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [nuevaCategoriaNombre, setNuevaCategoriaNombre] = useState("");
+  const [valuacionTotal, setValuacionTotal] = useState(0);
 
-  // Estado para el nuevo producto
+  // Estado para el producto (con alerta controlada)
   const [nuevoProducto, setNuevoProducto] = useState({
     nombre: "",
     marca: "",
@@ -46,7 +49,8 @@ export default function Inventario() {
     stock_minimo: 5,
     categoria_id: "",
     estado: "Nuevo",
-    es_vendible: true
+    es_vendible: true,
+    alerta_activa: true
   });
 
   useEffect(() => {
@@ -81,6 +85,9 @@ export default function Inventario() {
       console.error("Error fetching inventory:", error);
     } else {
       setProductos(prodData || []);
+      // Calcular Valuación Total
+      const total = (prodData || []).reduce((acc: number, curr: any) => acc + (curr.precio_compra * curr.stock_actual), 0);
+      setValuacionTotal(total);
     }
     setLoading(false);
   }
@@ -150,7 +157,8 @@ export default function Inventario() {
       stock_minimo: 5,
       categoria_id: "",
       estado: "Nuevo",
-      es_vendible: true
+      es_vendible: true,
+      alerta_activa: true
     });
     setEditingId(null);
   }
@@ -167,7 +175,8 @@ export default function Inventario() {
       stock_minimo: prod.stock_minimo,
       categoria_id: prod.categoria_id,
       estado: prod.estado,
-      es_vendible: prod.es_vendible
+      es_vendible: prod.es_vendible,
+      alerta_activa: prod.alerta_activa ?? true
     });
     setIsModalOpen(true);
   }
@@ -175,17 +184,23 @@ export default function Inventario() {
   return (
     <div className="max-w-7xl mx-auto space-y-8 pb-20">
       {/* Encabezado */}
-      <section className="flex flex-col md:flex-row justify-between items-start md:items-end gap-4">
+      <section className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
         <div>
           <h1 className="text-3xl font-bold text-neutral-900 dark:text-white mb-2 tracking-tight">
             📦 Inventario
           </h1>
-          <p className="text-neutral-500 dark:text-neutral-400 font-medium">
-            Gestiona tus relojes, repuestos y controla los niveles de stock.
-          </p>
+          <div className="flex items-center gap-4 text-sm">
+            <p className="text-neutral-500 dark:text-neutral-400 font-medium">
+              Gestión de stock y repuestos.
+            </p>
+            <div className="h-4 w-[1px] bg-neutral-200 dark:bg-neutral-800"></div>
+            <p className="text-xs font-bold text-neutral-900 dark:text-white uppercase tracking-widest bg-neutral-100 dark:bg-neutral-900 px-3 py-1 rounded-full border border-neutral-200 dark:border-neutral-800">
+              Valuación: <span className="text-green-600 dark:text-green-400 ml-1">${valuacionTotal.toLocaleString()}</span>
+            </p>
+          </div>
         </div>
         <button 
-          onClick={() => setIsModalOpen(true)}
+          onClick={() => { resetForm(); setIsModalOpen(true); }}
           className="px-6 py-2.5 bg-black dark:bg-white text-white dark:text-black rounded-xl font-bold text-sm hover:scale-105 transition-all shadow-lg flex items-center gap-2"
         >
           <span>➕ Nuevo Producto</span>
@@ -198,7 +213,7 @@ export default function Inventario() {
           onClick={() => setFiltroCategoria("todas")}
           className={`px-4 py-2 rounded-full text-xs font-bold transition-all ${
             filtroCategoria === "todas" 
-            ? "bg-neutral-900 text-white dark:bg-white dark:text-black" 
+            ? "bg-neutral-900 text-white dark:bg-white dark:text-black shadow-md shadow-black/10 dark:shadow-white/5" 
             : "bg-white dark:bg-neutral-900 border border-neutral-200 dark:border-neutral-800 text-neutral-500"
           }`}
         >
@@ -210,7 +225,7 @@ export default function Inventario() {
             onClick={() => setFiltroCategoria(cat.id)}
             className={`px-4 py-2 rounded-full text-xs font-bold transition-all ${
               filtroCategoria === cat.id 
-              ? "bg-neutral-900 text-white dark:bg-white dark:text-black" 
+              ? "bg-neutral-900 text-white dark:bg-white dark:text-black shadow-md shadow-black/10 dark:shadow-white/5" 
               : "bg-white dark:bg-neutral-900 border border-neutral-200 dark:border-neutral-800 text-neutral-500"
             }`}
           >
@@ -230,11 +245,11 @@ export default function Inventario() {
           <div className="p-20 flex flex-col items-center justify-center text-center">
             <span className="text-5xl mb-4 grayscale opacity-50">🔍</span>
             <h3 className="text-lg font-bold text-neutral-900 dark:text-white mb-2">No hay productos</h3>
-            <p className="text-neutral-500 max-w-xs mb-6 text-sm">
-              Parece que no tienes artículos registrados en esta categoría aún.
+            <p className="text-neutral-500 max-w-xs mb-6 text-sm italic">
+              Empatía con el usuario: "Parece que no tienes artículos registrados aún".
             </p>
             <button 
-              onClick={() => setIsModalOpen(true)}
+              onClick={() => { resetForm(); setIsModalOpen(true); }}
               className="px-5 py-2 border border-neutral-200 dark:border-neutral-800 rounded-xl text-sm font-bold hover:bg-neutral-50 dark:hover:bg-neutral-800 transition-all"
             >
               Registrar primer producto
@@ -245,11 +260,11 @@ export default function Inventario() {
             <table className="w-full text-left">
               <thead>
                 <tr className="border-b border-neutral-100 dark:border-neutral-800 bg-neutral-50/50 dark:bg-neutral-900/50">
-                  <th className="px-6 py-4 text-xs font-black text-neutral-400 uppercase tracking-widest">Producto</th>
-                  <th className="px-6 py-4 text-xs font-black text-neutral-400 uppercase tracking-widest">Detalle</th>
-                  <th className="px-6 py-4 text-xs font-black text-neutral-400 uppercase tracking-widest">Stock</th>
-                  <th className="px-6 py-4 text-xs font-black text-neutral-400 uppercase tracking-widest">Precio Venta</th>
-                  <th className="px-6 py-4 text-xs font-black text-neutral-400 uppercase tracking-widest text-right">Acciones</th>
+                  <th className="px-6 py-4 text-[10px] font-black text-neutral-400 uppercase tracking-widest">Producto</th>
+                  <th className="px-6 py-4 text-[10px] font-black text-neutral-400 uppercase tracking-widest">Detalle</th>
+                  <th className="px-6 py-4 text-[10px] font-black text-neutral-400 uppercase tracking-widest">Stock</th>
+                  <th className="px-6 py-4 text-[10px] font-black text-neutral-400 uppercase tracking-widest">Precio Venta</th>
+                  <th className="px-6 py-4 text-[10px] font-black text-neutral-400 uppercase tracking-widest text-right">Acciones</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-neutral-100 dark:divide-neutral-800">
@@ -266,25 +281,25 @@ export default function Inventario() {
                       </div>
                     </td>
                     <td className="px-6 py-5">
-                      <div className="flex flex-col text-xs space-y-1">
-                        <span className="text-neutral-500 font-medium">Marca: <span className="text-neutral-800 dark:text-neutral-200">{prod.marca || 'N/A'}</span></span>
-                        <span className="text-neutral-500 font-medium">Estado: <span className="text-neutral-800 dark:text-neutral-200">{prod.estado}</span></span>
+                      <div className="flex flex-col text-[11px] space-y-1">
+                        <span className="text-neutral-500 font-medium">Marca: <span className="text-neutral-800 dark:text-neutral-200 font-bold">{prod.marca || 'N/A'}</span></span>
+                        <span className="text-neutral-500 font-medium">Estado: <span className="text-neutral-800 dark:text-neutral-200 font-bold">{prod.estado}</span></span>
                       </div>
                     </td>
                     <td className="px-6 py-5">
                       <div className="flex items-center gap-3">
-                        <span className={`text-sm font-black ${prod.stock_actual <= prod.stock_minimo ? 'text-red-500' : 'text-neutral-900 dark:text-white'}`}>
+                        <span className={`text-sm font-black ${prod.alerta_activa && prod.stock_actual <= prod.stock_minimo ? 'text-red-500' : 'text-neutral-900 dark:text-white'}`}>
                           {prod.stock_actual}
                         </span>
-                        {prod.stock_actual <= prod.stock_minimo && (
-                          <span className="px-2 py-1 bg-red-50 dark:bg-red-950/30 text-[10px] text-red-600 dark:text-red-400 rounded-md font-bold animate-pulse">
+                        {(prod.alerta_activa && prod.stock_actual <= prod.stock_minimo) && (
+                          <span className="px-2 py-0.5 bg-red-50 dark:bg-red-950/30 text-[9px] text-red-600 dark:text-red-400 rounded-md font-black animate-pulse border border-red-100 dark:border-red-900/50">
                             REABASTECER
                           </span>
                         )}
                       </div>
                     </td>
                     <td className="px-6 py-5">
-                      <span className="font-black text-neutral-900 dark:text-white">
+                      <span className="font-black text-sm text-neutral-900 dark:text-white">
                         ${prod.precio_venta.toLocaleString()}
                       </span>
                     </td>
@@ -304,133 +319,149 @@ export default function Inventario() {
         )}
       </div>
 
-      {/* MODAL DE NUEVO PRODUCTO */}
+      {/* MODAL DE PRODUCTO (Optimizado) */}
       {isModalOpen && (
         <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-          <div className="bg-white dark:bg-neutral-900 w-full max-w-2xl rounded-3xl shadow-2xl overflow-hidden animate-in fade-in zoom-in duration-200">
-            <div className="p-8">
-              <div className="flex justify-between items-center mb-6">
-                <h2 className="text-2xl font-black text-neutral-900 dark:text-white">
-                  {editingId ? "✏️ Editar Producto" : "✨ Nuevo Producto"}
-                </h2>
-                <button onClick={() => setIsModalOpen(false)} className="text-neutral-400 hover:text-black dark:hover:text-white text-xl">✕</button>
+          <div className="bg-white dark:bg-neutral-900 w-full max-w-xl rounded-2xl shadow-2xl overflow-hidden animate-in fade-in zoom-in duration-200 border border-neutral-200 dark:border-neutral-800">
+            <div className="max-h-[85vh] overflow-y-auto custom-scrollbar">
+              <div className="p-6 md:p-8">
+                <div className="flex justify-between items-center mb-8">
+                  <h2 className="text-xl font-black text-neutral-900 dark:text-white flex items-center gap-2">
+                    {editingId ? "✏️ Editar Producto" : "✨ Nuevo Producto"}
+                  </h2>
+                  <button onClick={() => setIsModalOpen(false)} className="text-neutral-400 hover:text-black dark:hover:text-white text-xl">✕</button>
+                </div>
+
+                <form onSubmit={handleSave} className="grid grid-cols-1 md:grid-cols-2 gap-5">
+                  <div className="md:col-span-2">
+                    <label className="block text-[10px] font-black uppercase tracking-widest text-neutral-400 mb-2 font-mono">Nombre del Producto</label>
+                    <input 
+                      required
+                      type="text" 
+                      className="w-full bg-neutral-50 dark:bg-neutral-800 border border-neutral-100 dark:border-neutral-700 rounded-xl px-4 py-3 text-sm focus:ring-2 focus:ring-black dark:focus:ring-white transition-all font-bold"
+                      placeholder="Ej. Batería CR2032"
+                      value={nuevoProducto.nombre}
+                      onChange={(e) => setNuevoProducto({...nuevoProducto, nombre: e.target.value})}
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-[10px] font-black uppercase tracking-widest text-neutral-400 mb-2 font-mono">Marca</label>
+                    <input 
+                      type="text" 
+                      className="w-full bg-neutral-50 dark:bg-neutral-800 border border-neutral-100 dark:border-neutral-700 rounded-xl px-4 py-3 text-sm focus:ring-2 focus:ring-black dark:focus:ring-white transition-all font-bold"
+                      placeholder="Ej. Sony"
+                      value={nuevoProducto.marca}
+                      onChange={(e) => setNuevoProducto({...nuevoProducto, marca: e.target.value})}
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-[10px] font-black uppercase tracking-widest text-neutral-400 mb-2 font-mono">Modelo</label>
+                    <input 
+                      type="text" 
+                      className="w-full bg-neutral-50 dark:bg-neutral-800 border border-neutral-100 dark:border-neutral-700 rounded-xl px-4 py-3 text-sm focus:ring-2 focus:ring-black dark:focus:ring-white transition-all font-bold"
+                      placeholder="Opcional"
+                      value={nuevoProducto.modelo}
+                      onChange={(e) => setNuevoProducto({...nuevoProducto, modelo: e.target.value})}
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-[10px] font-black uppercase tracking-widest text-neutral-400 mb-2 font-mono">Categoría</label>
+                    <select 
+                      required
+                      className="w-full bg-neutral-50 dark:bg-neutral-800 border border-neutral-100 dark:border-neutral-700 rounded-xl px-4 py-3 text-sm focus:ring-2 focus:ring-black dark:focus:ring-white transition-all font-bold"
+                      value={nuevoProducto.categoria_id}
+                      onChange={(e) => setNuevoProducto({...nuevoProducto, categoria_id: e.target.value})}
+                    >
+                      <option value="">Seleccionar...</option>
+                      {categorias.map(c => <option key={c.id} value={c.id}>{c.nombre}</option>)}
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="block text-[10px] font-black uppercase tracking-widest text-neutral-400 mb-2 font-mono">Estado</label>
+                    <select 
+                      className="w-full bg-neutral-50 dark:bg-neutral-800 border border-neutral-100 dark:border-neutral-700 rounded-xl px-4 py-3 text-sm focus:ring-2 focus:ring-black dark:focus:ring-white transition-all font-bold"
+                      value={nuevoProducto.estado}
+                      onChange={(e) => setNuevoProducto({...nuevoProducto, estado: e.target.value})}
+                    >
+                      <option value="Nuevo">Nuevo</option>
+                      <option value="Usado">Usado</option>
+                      <option value="Restaurado">Restaurado</option>
+                      <option value="N/A">N/A</option>
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="block text-[10px] font-black uppercase tracking-widest text-neutral-400 mb-2 font-mono">Precio Compra</label>
+                    <input 
+                      type="number" 
+                      step="0.01"
+                      className="w-full bg-neutral-50 dark:bg-neutral-800 border border-neutral-100 dark:border-neutral-700 rounded-xl px-4 py-3 text-sm focus:ring-2 focus:ring-black dark:focus:ring-white transition-all font-bold"
+                      value={nuevoProducto.precio_compra}
+                      onChange={(e) => setNuevoProducto({...nuevoProducto, precio_compra: parseFloat(e.target.value)})}
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-[10px] font-black uppercase tracking-widest text-neutral-400 mb-2 font-mono">Precio Venta</label>
+                    <input 
+                      required
+                      type="number" 
+                      step="0.01"
+                      className="w-full bg-neutral-50 dark:bg-neutral-800 border border-neutral-100 dark:border-neutral-700 rounded-xl px-4 py-3 text-sm focus:ring-2 focus:ring-black dark:focus:ring-white transition-all font-bold text-green-600 dark:text-green-400"
+                      value={nuevoProducto.precio_venta}
+                      onChange={(e) => setNuevoProducto({...nuevoProducto, precio_venta: parseFloat(e.target.value)})}
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-[10px] font-black uppercase tracking-widest text-neutral-400 mb-2 font-mono">Stock Actual</label>
+                    <input 
+                      type="number" 
+                      className="w-full bg-neutral-50 dark:bg-neutral-800 border border-neutral-100 dark:border-neutral-700 rounded-xl px-4 py-3 text-sm focus:ring-2 focus:ring-black dark:focus:ring-white transition-all font-bold"
+                      value={nuevoProducto.stock_actual}
+                      onChange={(e) => setNuevoProducto({...nuevoProducto, stock_actual: parseInt(e.target.value)})}
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-[10px] font-black uppercase tracking-widest text-neutral-400 mb-2 font-mono">Config. de Alerta</label>
+                    <div className="flex items-center gap-3">
+                      <input 
+                        disabled={!nuevoProducto.alerta_activa}
+                        type="number" 
+                        className={`w-20 bg-neutral-50 dark:bg-neutral-800 border border-neutral-100 dark:border-neutral-700 rounded-xl px-4 py-3 text-sm focus:ring-2 focus:ring-black dark:focus:ring-white transition-all font-bold ${!nuevoProducto.alerta_activa ? 'opacity-30' : ''}`}
+                        value={nuevoProducto.stock_minimo}
+                        onChange={(e) => setNuevoProducto({...nuevoProducto, stock_minimo: parseInt(e.target.value)})}
+                      />
+                      <div 
+                        onClick={() => setNuevoProducto({...nuevoProducto, alerta_activa: !nuevoProducto.alerta_activa})}
+                        className={`flex-1 flex items-center justify-between px-3 py-3 rounded-xl border-2 cursor-pointer transition-all ${nuevoProducto.alerta_activa ? 'bg-amber-50 border-amber-200 text-amber-600' : 'bg-neutral-50 border-neutral-100 text-neutral-400 opacity-50'}`}
+                      >
+                        <span className="text-[10px] font-black uppercase tracking-tighter">
+                          {nuevoProducto.alerta_activa ? '🔔 Alerta ACTIVA' : '🔕 Inactiva'}
+                        </span>
+                        <div className={`w-5 h-5 rounded-full border-2 flex items-center justify-center transition-all ${nuevoProducto.alerta_activa ? 'bg-amber-500 border-amber-500 shadow-md shadow-amber-500/30' : 'border-neutral-300'}`}>
+                          {nuevoProducto.alerta_activa && <span className="text-[10px] text-white">✓</span>}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="md:col-span-2 pt-4">
+                    <button 
+                      disabled={saving}
+                      type="submit" 
+                      className="w-full py-4 bg-neutral-900 dark:bg-white text-white dark:text-black rounded-2xl font-black uppercase tracking-widest hover:scale-[1.02] active:scale-[0.98] transition-all disabled:opacity-50 shadow-xl"
+                    >
+                      {saving ? "Procesando..." : (editingId ? "Actualizar Producto" : "Finalizar Registro")}
+                    </button>
+                  </div>
+                </form>
               </div>
-
-              <form onSubmit={handleSave} className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                <div className="md:col-span-2">
-                  <label className="block text-xs font-black uppercase tracking-widest text-neutral-400 mb-2">Nombre del Producto</label>
-                  <input 
-                    required
-                    type="text" 
-                    className="w-full bg-neutral-50 dark:bg-neutral-800 border-none rounded-xl px-4 py-3 text-sm focus:ring-2 focus:ring-black dark:focus:ring-white transition-all"
-                    placeholder="Ej. Batería CR2032"
-                    value={nuevoProducto.nombre}
-                    onChange={(e) => setNuevoProducto({...nuevoProducto, nombre: e.target.value})}
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-xs font-black uppercase tracking-widest text-neutral-400 mb-2">Marca</label>
-                  <input 
-                    type="text" 
-                    className="w-full bg-neutral-50 dark:bg-neutral-800 border-none rounded-xl px-4 py-3 text-sm focus:ring-2 focus:ring-black dark:focus:ring-white transition-all"
-                    placeholder="Ej. Sony"
-                    value={nuevoProducto.marca}
-                    onChange={(e) => setNuevoProducto({...nuevoProducto, marca: e.target.value})}
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-xs font-black uppercase tracking-widest text-neutral-400 mb-2">Modelo</label>
-                  <input 
-                    type="text" 
-                    className="w-full bg-neutral-50 dark:bg-neutral-800 border-none rounded-xl px-4 py-3 text-sm focus:ring-2 focus:ring-black dark:focus:ring-white transition-all"
-                    placeholder="Opcional"
-                    value={nuevoProducto.modelo}
-                    onChange={(e) => setNuevoProducto({...nuevoProducto, modelo: e.target.value})}
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-xs font-black uppercase tracking-widest text-neutral-400 mb-2">Categoría</label>
-                  <select 
-                    required
-                    className="w-full bg-neutral-50 dark:bg-neutral-800 border-none rounded-xl px-4 py-3 text-sm focus:ring-2 focus:ring-black dark:focus:ring-white transition-all"
-                    value={nuevoProducto.categoria_id}
-                    onChange={(e) => setNuevoProducto({...nuevoProducto, categoria_id: e.target.value})}
-                  >
-                    <option value="">Seleccionar...</option>
-                    {categorias.map(c => <option key={c.id} value={c.id}>{c.nombre}</option>)}
-                  </select>
-                </div>
-
-                <div>
-                  <label className="block text-xs font-black uppercase tracking-widest text-neutral-400 mb-2">Estado</label>
-                  <select 
-                    className="w-full bg-neutral-50 dark:bg-neutral-800 border-none rounded-xl px-4 py-3 text-sm focus:ring-2 focus:ring-black dark:focus:ring-white transition-all"
-                    value={nuevoProducto.estado}
-                    onChange={(e) => setNuevoProducto({...nuevoProducto, estado: e.target.value})}
-                  >
-                    <option value="Nuevo">Nuevo</option>
-                    <option value="Usado">Usado</option>
-                    <option value="Restaurado">Restaurado</option>
-                    <option value="N/A">N/A</option>
-                  </select>
-                </div>
-
-                <div>
-                  <label className="block text-xs font-black uppercase tracking-widest text-neutral-400 mb-2">Precio Compra</label>
-                  <input 
-                    type="number" 
-                    step="0.01"
-                    className="w-full bg-neutral-50 dark:bg-neutral-800 border-none rounded-xl px-4 py-3 text-sm focus:ring-2 focus:ring-black dark:focus:ring-white transition-all font-bold"
-                    value={nuevoProducto.precio_compra}
-                    onChange={(e) => setNuevoProducto({...nuevoProducto, precio_compra: parseFloat(e.target.value)})}
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-xs font-black uppercase tracking-widest text-neutral-400 mb-2">Precio Venta</label>
-                  <input 
-                    required
-                    type="number" 
-                    step="0.01"
-                    className="w-full bg-neutral-50 dark:bg-neutral-800 border-none rounded-xl px-4 py-3 text-sm focus:ring-2 focus:ring-black dark:focus:ring-white transition-all font-bold text-green-600 dark:text-green-400"
-                    value={nuevoProducto.precio_venta}
-                    onChange={(e) => setNuevoProducto({...nuevoProducto, precio_venta: parseFloat(e.target.value)})}
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-xs font-black uppercase tracking-widest text-neutral-400 mb-2">Stock Inicial</label>
-                  <input 
-                    type="number" 
-                    className="w-full bg-neutral-50 dark:bg-neutral-800 border-none rounded-xl px-4 py-3 text-sm focus:ring-2 focus:ring-black dark:focus:ring-white transition-all font-bold"
-                    value={nuevoProducto.stock_actual}
-                    onChange={(e) => setNuevoProducto({...nuevoProducto, stock_actual: parseInt(e.target.value)})}
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-xs font-black uppercase tracking-widest text-neutral-400 mb-2">Stock Mínimo (Alerta)</label>
-                  <input 
-                    type="number" 
-                    className="w-full bg-neutral-50 dark:bg-neutral-800 border-none rounded-xl px-4 py-3 text-sm focus:ring-2 focus:ring-black dark:focus:ring-white transition-all font-bold"
-                    value={nuevoProducto.stock_minimo}
-                    onChange={(e) => setNuevoProducto({...nuevoProducto, stock_minimo: parseInt(e.target.value)})}
-                  />
-                </div>
-
-                <div className="md:col-span-2 pt-4">
-                  <button 
-                    disabled={saving}
-                    type="submit" 
-                    className="w-full py-4 bg-black dark:bg-white text-white dark:text-black rounded-2xl font-black uppercase tracking-widest hover:scale-[1.02] active:scale-[0.98] transition-all disabled:opacity-50 shadow-xl"
-                  >
-                    {saving ? "Guardando..." : (editingId ? "Actualizar Producto" : "Confirmar Registro")}
-                  </button>
-                </div>
-              </form>
             </div>
           </div>
         </div>
@@ -439,7 +470,7 @@ export default function Inventario() {
       {/* MODAL DE NUEVA CATEGORÍA */}
       {isCategoryModalOpen && (
         <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[60] flex items-center justify-center p-4">
-          <div className="bg-white dark:bg-neutral-900 w-full max-w-sm rounded-3xl shadow-2xl overflow-hidden animate-in fade-in zoom-in duration-200">
+          <div className="bg-white dark:bg-neutral-900 w-full max-w-sm rounded-3xl shadow-2xl overflow-hidden animate-in fade-in zoom-in duration-200 border border-neutral-200 dark:border-neutral-800">
             <div className="p-8">
               <div className="flex justify-between items-center mb-6">
                 <h2 className="text-xl font-black text-neutral-900 dark:text-white">🏷️ Nueva Categoría</h2>
@@ -452,7 +483,7 @@ export default function Inventario() {
                     autoFocus
                     required
                     type="text" 
-                    className="w-full bg-neutral-50 dark:bg-neutral-800 border-none rounded-xl px-4 py-3 text-sm focus:ring-2 focus:ring-black dark:focus:ring-white transition-all font-bold"
+                    className="w-full bg-neutral-50 dark:bg-neutral-800 border border-neutral-100 dark:border-neutral-700 rounded-xl px-4 py-3 text-sm focus:ring-2 focus:ring-black dark:focus:ring-white transition-all font-bold"
                     placeholder="Ej. Herramientas"
                     value={nuevaCategoriaNombre}
                     onChange={(e) => setNuevaCategoriaNombre(e.target.value)}
@@ -461,7 +492,7 @@ export default function Inventario() {
                 <button 
                   disabled={saving}
                   type="submit" 
-                  className="w-full py-3 bg-neutral-900 dark:bg-white text-white dark:text-black rounded-xl font-black uppercase text-xs tracking-widest hover:scale-[1.05] transition-all disabled:opacity-50"
+                  className="w-full py-3 bg-neutral-900 dark:bg-white text-white dark:text-black rounded-xl font-black uppercase text-xs tracking-widest hover:scale-[1.05] transition-all disabled:opacity-50 shadow-lg shadow-black/10 dark:shadow-white/5"
                 >
                   {saving ? "Creando..." : "Crear Categoría"}
                 </button>
@@ -471,15 +502,15 @@ export default function Inventario() {
         </div>
       )}
 
-      {/* Botón Flotante para Categorías (Opcional, pero útil) */}
+      {/* Botón Flotante para Categorías */}
       <button 
         onClick={() => setIsCategoryModalOpen(true)}
-        className="fixed bottom-8 right-8 w-12 h-12 bg-white dark:bg-neutral-800 border border-neutral-200 dark:border-neutral-700 rounded-full shadow-2xl flex items-center justify-center text-xl hover:scale-110 active:scale-95 transition-all z-40 group"
+        className="fixed bottom-8 right-8 w-14 h-14 bg-black dark:bg-white text-white dark:text-black rounded-full shadow-2xl flex items-center justify-center text-2xl hover:scale-110 active:scale-95 transition-all z-40 group border-4 border-white dark:border-neutral-900"
         title="Gestionar Categorías"
       >
         🏷️
-        <span className="absolute right-14 bg-black text-white text-[10px] font-bold px-2 py-1 rounded opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap pointer-events-none">
-          Añadir Categoría
+        <span className="absolute right-16 bg-black text-white text-[10px] font-bold px-3 py-1.5 rounded-lg opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap pointer-events-none shadow-xl border border-neutral-800">
+          Nueva Categoría
         </span>
       </button>
     </div>
