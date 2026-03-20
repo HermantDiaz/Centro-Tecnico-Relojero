@@ -31,6 +31,7 @@ export default function Inventario() {
   const [categorias, setCategorias] = useState<Categoria[]>([]);
   const [loading, setLoading] = useState(true);
   const [filtroCategoria, setFiltroCategoria] = useState<string>("todas");
+  const [searchTerm, setSearchTerm] = useState("");
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isCategoryModalOpen, setIsCategoryModalOpen] = useState(false);
   const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
@@ -112,6 +113,17 @@ export default function Inventario() {
     }
     setLoading(false);
   }
+
+  // Filtrado local por término de búsqueda
+  const productosFiltrados = productos.filter(p => {
+    const searchLow = searchTerm.toLowerCase();
+    return (
+      p.nombre.toLowerCase().includes(searchLow) ||
+      (p.codigo && p.codigo.toLowerCase().includes(searchLow)) ||
+      (p.marca && p.marca.toLowerCase().includes(searchLow)) ||
+      (p.modelo && p.modelo.toLowerCase().includes(searchLow))
+    );
+  });
 
   async function handleSave(e: React.FormEvent) {
     e.preventDefault();
@@ -289,31 +301,44 @@ export default function Inventario() {
         </button>
       </section>
 
-      {/* Filtros */}
-      <section className="flex flex-wrap gap-2">
-        <button 
-          onClick={() => setFiltroCategoria("todas")}
-          className={`px-4 py-2 rounded-full text-xs font-bold transition-all ${
-            filtroCategoria === "todas" 
-            ? "bg-neutral-900 text-white dark:bg-white dark:text-black shadow-md shadow-black/10 dark:shadow-white/5" 
-            : "bg-white dark:bg-neutral-900 border border-neutral-200 dark:border-neutral-800 text-neutral-500"
-          }`}
-        >
-          Todas las categorías
-        </button>
-        {categorias.map((cat) => (
+      {/* Barra de Búsqueda y Filtros */}
+      <section className="space-y-4">
+        <div className="relative group max-w-2xl">
+          <span className="absolute left-4 top-1/2 -translate-y-1/2 text-lg grayscale opacity-50 group-focus-within:opacity-100 transition-opacity">🔍</span>
+          <input 
+            type="text" 
+            placeholder="Buscar por nombre, SKU, marca o modelo..."
+            value={searchTerm}
+            onChange={(e) => setSearchTerm(e.target.value)}
+            className="w-full bg-white dark:bg-neutral-900 border border-neutral-200 dark:border-neutral-800 rounded-2xl pl-12 pr-4 py-3.5 text-sm font-medium focus:ring-2 focus:ring-black dark:focus:ring-white transition-all shadow-sm"
+          />
+        </div>
+
+        <div className="flex flex-wrap gap-2">
           <button 
-            key={cat.id}
-            onClick={() => setFiltroCategoria(cat.id)}
+            onClick={() => setFiltroCategoria("todas")}
             className={`px-4 py-2 rounded-full text-xs font-bold transition-all ${
-              filtroCategoria === cat.id 
+              filtroCategoria === "todas" 
               ? "bg-neutral-900 text-white dark:bg-white dark:text-black shadow-md shadow-black/10 dark:shadow-white/5" 
               : "bg-white dark:bg-neutral-900 border border-neutral-200 dark:border-neutral-800 text-neutral-500"
             }`}
           >
-            {cat.nombre}
+            Todas las categorías
           </button>
-        ))}
+          {categorias.map((cat) => (
+            <button 
+              key={cat.id}
+              onClick={() => setFiltroCategoria(cat.id)}
+              className={`px-4 py-2 rounded-full text-xs font-bold transition-all ${
+                filtroCategoria === cat.id 
+                ? "bg-neutral-900 text-white dark:bg-white dark:text-black shadow-md shadow-black/10 dark:shadow-white/5" 
+                : "bg-white dark:bg-neutral-900 border border-neutral-200 dark:border-neutral-800 text-neutral-500"
+              }`}
+            >
+              {cat.nombre}
+            </button>
+          ))}
+        </div>
       </section>
 
       {/* Tabla */}
@@ -323,16 +348,20 @@ export default function Inventario() {
             <div className="w-10 h-10 border-4 border-neutral-200 dark:border-neutral-800 border-t-black dark:border-t-white rounded-full animate-spin"></div>
             <p className="text-neutral-500 font-medium animate-pulse text-sm">Cargando inventario...</p>
           </div>
-        ) : productos.length === 0 ? (
+        ) : productosFiltrados.length === 0 ? (
           <div className="p-20 flex flex-col items-center justify-center text-center">
-            <span className="text-5xl mb-4 grayscale opacity-50">🔍</span>
-            <h3 className="text-lg font-bold text-neutral-900 dark:text-white mb-2">No hay productos</h3>
-            <button 
-              onClick={() => { resetForm(); setIsModalOpen(true); }}
-              className="px-5 py-2 border border-neutral-200 dark:border-neutral-800 rounded-xl text-sm font-bold hover:bg-neutral-50 dark:hover:bg-neutral-800 transition-all"
-            >
-              Registrar primer producto
-            </button>
+            <span className="text-5xl mb-4 grayscale opacity-50">{searchTerm ? "🚫" : "🔍"}</span>
+            <h3 className="text-lg font-bold text-neutral-900 dark:text-white mb-2">
+              {searchTerm ? `No se encontraron resultados para "${searchTerm}"` : "No hay productos"}
+            </h3>
+            {!searchTerm && (
+              <button 
+                onClick={() => { resetForm(); setIsModalOpen(true); }}
+                className="px-5 py-2 border border-neutral-200 dark:border-neutral-800 rounded-xl text-sm font-bold hover:bg-neutral-50 dark:hover:bg-neutral-800 transition-all"
+              >
+                Registrar primer producto
+              </button>
+            )}
           </div>
         ) : (
           <div className="overflow-x-auto">
@@ -347,7 +376,7 @@ export default function Inventario() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-neutral-100 dark:divide-neutral-800">
-                {productos.map((prod) => (
+                {productosFiltrados.map((prod) => (
                   <tr key={prod.id} className="hover:bg-neutral-50/50 dark:hover:bg-neutral-800/30 transition-all group">
                     <td className="px-6 py-5">
                       <div className="flex flex-col">
@@ -416,7 +445,7 @@ export default function Inventario() {
         )}
       </div>
 
-      {/* MODAL PRODUCTO */}
+      {/* MODAL PRODUCTO (Sin cambios en lógica interna, solo UI) */}
       {isModalOpen && (
         <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4 text-left">
           <div className="bg-white dark:bg-neutral-900 w-full max-w-xl rounded-2xl shadow-2xl overflow-hidden animate-in fade-in zoom-in duration-200 border border-neutral-200 dark:border-neutral-800">
