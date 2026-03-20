@@ -8,12 +8,24 @@ import Image from "next/image";
 export default function Login() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const router = useRouter();
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
+    
+    // Validaciones básicas
+    if (!email.includes("@")) {
+      setError("Por favor, ingresa un correo electrónico válido.");
+      return;
+    }
+    if (password.length < 6) {
+      setError("La contraseña debe tener al menos 6 caracteres.");
+      return;
+    }
+
     setLoading(true);
     setError(null);
 
@@ -36,18 +48,16 @@ export default function Login() {
   return (
     <div className="min-h-screen flex items-center justify-center bg-neutral-50 dark:bg-black p-6 font-sans">
       <div className="w-full max-w-md animate-in fade-in slide-in-from-bottom-8 duration-700">
-        {/* Branding Superior */}
+        {/* Branding Superior: Solo Logo */}
         <div className="text-center mb-10">
-          <div className="inline-block p-4 bg-white dark:bg-neutral-900 rounded-[2rem] shadow-2xl mb-6 border border-neutral-100 dark:border-neutral-800">
-             <Image src="/logobuenoVectorizado.svg" alt="CTR Logo" width={64} height={64} className="dark:invert object-contain" />
+          <div className="inline-block p-6 bg-white dark:bg-neutral-900 rounded-[2.5rem] shadow-2xl mb-4 border border-neutral-100 dark:border-neutral-800 transform hover:scale-105 transition-transform duration-500">
+             <Image src="/logobuenoVectorizado.svg" alt="CTR Logo" width={80} height={80} className="dark:invert object-contain" />
           </div>
-          <h1 className="text-2xl font-black text-neutral-900 dark:text-white tracking-widest uppercase italic">Relojería IA</h1>
-          <p className="text-neutral-500 dark:text-neutral-400 text-sm font-medium mt-1 uppercase tracking-tighter">Acceso Administrativo Seguro</p>
+          <p className="text-neutral-400 dark:text-neutral-500 text-[10px] font-black uppercase tracking-[0.3em] mt-4">Acceso Seguro</p>
         </div>
 
         {/* Card de Login */}
         <div className="bg-white dark:bg-neutral-900 rounded-[2.5rem] p-10 shadow-2xl border border-neutral-100 dark:border-neutral-800 relative group overflow-hidden">
-          {/* Sutil gradiente de fondo en hover */}
           <div className="absolute inset-0 bg-gradient-to-tr from-neutral-50/50 to-white/0 dark:from-white/5 dark:to-transparent opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none duration-500"></div>
           
           <form onSubmit={handleLogin} className="space-y-6 relative z-10">
@@ -56,23 +66,31 @@ export default function Login() {
               <input 
                 required
                 type="email" 
-                placeholder="relojeria@ejemplo.com"
+                placeholder="usuario@relojeria.com"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
-                className="w-full bg-neutral-50 dark:bg-neutral-800 border-none rounded-2xl px-5 py-4 text-sm font-bold focus:ring-2 focus:ring-black dark:focus:ring-white transition-all shadow-inner placeholder:font-normal placeholder:text-neutral-300 dark:placeholder:text-neutral-600"
+                className="w-full bg-neutral-50 dark:bg-neutral-800 border-none rounded-2xl px-5 py-4 text-sm font-bold focus:ring-2 focus:ring-black dark:focus:ring-white transition-all shadow-inner"
               />
             </div>
 
-            <div>
+            <div className="relative">
               <label className="block text-[10px] font-black uppercase tracking-widest text-neutral-400 mb-2 ml-1">Contraseña</label>
               <input 
                 required
-                type="password" 
+                type={showPassword ? "text" : "password"} 
                 placeholder="••••••••"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
-                className="w-full bg-neutral-50 dark:bg-neutral-800 border-none rounded-2xl px-5 py-4 text-sm font-bold focus:ring-2 focus:ring-black dark:focus:ring-white transition-all shadow-inner placeholder:font-normal placeholder:text-neutral-300 dark:placeholder:text-neutral-600"
+                className="w-full bg-neutral-50 dark:bg-neutral-800 border-none rounded-2xl px-5 py-4 text-sm font-bold focus:ring-2 focus:ring-black dark:focus:ring-white transition-all shadow-inner"
               />
+              <button 
+                type="button"
+                onClick={() => setShowPassword(!showPassword)}
+                className="absolute right-4 bottom-4 text-neutral-300 hover:text-neutral-500 dark:text-neutral-600 dark:hover:text-neutral-400 transition-colors"
+                title={showPassword ? "Ocultar" : "Mostrar"}
+              >
+                {showPassword ? "👁️" : "🙈"}
+              </button>
             </div>
 
             {error && (
@@ -93,10 +111,9 @@ export default function Login() {
           </form>
         </div>
 
-        {/* Footer info */}
-        <p className="text-center mt-10 text-[10px] font-bold text-neutral-400 dark:text-neutral-600 uppercase tracking-widest leading-loose">
-          Solo personal autorizado.<br/>
-          Si no tienes acceso, contacta al desarrollador.
+        <p className="text-center mt-10 text-[9px] font-bold text-neutral-400 dark:text-neutral-600 uppercase tracking-widest leading-loose">
+           Propiedad Exclusiva de CTR Relojería<br/>
+           © 2026 Sistema Administrativo IA
         </p>
       </div>
     </div>

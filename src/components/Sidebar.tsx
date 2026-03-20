@@ -13,12 +13,25 @@ const NAV_ITEMS = [
   { label: "Deudas", icon: "🤝", path: "/deudas" },
 ];
 
+const ADMIN_ITEMS = [
+  { label: "Gestión de Equipo", icon: "👥", path: "/admin/usuarios" },
+];
+
 export default function Sidebar() {
   const pathname = usePathname();
-  const { signOut, user } = useAuth();
+  const { signOut, user, rol } = useAuth();
+
+  const getRoleLabel = (r: typeof rol) => {
+    switch(r) {
+      case 'admin': return 'Administrador';
+      case 'recepcion': return 'Recepción';
+      case 'tecnico': return 'Técnico Especialista';
+      default: return 'Usuario';
+    }
+  };
 
   return (
-    <aside className="w-64 bg-white dark:bg-black border-r border-neutral-100 dark:border-neutral-900 flex flex-col h-screen transition-all">
+    <aside className="w-64 bg-white dark:bg-black border-r border-neutral-100 dark:border-neutral-900 flex flex-col h-screen transition-all select-none">
       {/* Branding Section */}
       <div className="p-8 pb-10 flex flex-col items-center">
         <div className="relative group mb-4">
@@ -36,7 +49,7 @@ export default function Sidebar() {
       </div>
 
       {/* Navigation Links */}
-      <nav className="flex-1 px-4 space-y-2">
+      <nav className="flex-1 px-4 space-y-2 overflow-y-auto custom-scrollbar">
         {NAV_ITEMS.map((item) => {
           const isActive = pathname === item.path;
           return (
@@ -56,26 +69,54 @@ export default function Sidebar() {
             </Link>
           );
         })}
+
+        {/* Admin Section Separator */}
+        {rol === 'admin' && (
+          <div className="pt-6 pb-2">
+            <p className="px-5 text-[9px] font-black uppercase tracking-[0.3em] text-neutral-400 mb-2">Administración</p>
+            {ADMIN_ITEMS.map((item) => {
+              const isActive = pathname === item.path;
+              return (
+                <Link 
+                  key={item.path} 
+                  href={item.path}
+                  className={`flex items-center gap-3 px-4 py-3.5 rounded-2xl text-sm font-bold transition-all duration-300 group ${
+                    isActive 
+                    ? "bg-amber-600 text-white shadow-lg shadow-amber-600/20 scale-[1.02]" 
+                    : "text-neutral-500 hover:bg-neutral-50 dark:hover:bg-neutral-900 hover:text-black dark:hover:text-white"
+                  }`}
+                >
+                  <span className={`text-lg transition-transform duration-300 group-hover:scale-110 ${isActive ? "" : "grayscale group-hover:grayscale-0"}`}>
+                    {item.icon}
+                  </span>
+                  <span className="tracking-tight">{item.label}</span>
+                </Link>
+              );
+            })}
+          </div>
+        )}
       </nav>
 
       {/* User Area & Logout */}
-      <div className="p-6 border-t border-neutral-100 dark:border-neutral-900">
-        <div className="bg-neutral-50 dark:bg-neutral-900/50 rounded-3xl p-4 border border-neutral-100 dark:border-neutral-800/50">
-          <div className="flex items-center gap-3 mb-4">
-            <div className="w-10 h-10 bg-neutral-900 dark:bg-white rounded-2xl flex items-center justify-center text-white dark:text-black font-black text-xs shadow-lg">
-              {user?.email?.substring(0, 1).toUpperCase() || "A"}
+      <div className="p-4 border-t border-neutral-100 dark:border-neutral-900 mt-auto bg-white dark:bg-black">
+        <div className="bg-neutral-50 dark:bg-neutral-900/50 rounded-3xl p-4 border border-neutral-100 dark:border-neutral-800/50 min-h-[140px] flex flex-col justify-between shadow-sm">
+          <div className="flex items-center gap-3">
+            <div className="flex-shrink-0 w-10 h-10 bg-neutral-900 dark:bg-white rounded-2xl flex items-center justify-center text-white dark:text-black font-black text-xs shadow-lg uppercase">
+              {user?.email?.substring(0, 1) || "A"}
             </div>
-            <div className="flex flex-col overflow-hidden">
-              <span className="text-xs font-black text-neutral-900 dark:text-white truncate">
+            <div className="flex flex-col min-w-0">
+              <span className="text-xs font-black text-neutral-900 dark:text-white truncate" title={user?.email || "Administrador"}>
                 {user?.email?.split('@')[0] || "Administrador"}
               </span>
-              <span className="text-[9px] font-bold text-neutral-400 uppercase tracking-tighter">Herman Diaz</span>
+              <span className={`text-[9px] font-black uppercase tracking-widest mt-0.5 ${rol === 'admin' ? 'text-amber-600 dark:text-amber-400' : 'text-neutral-400'}`}>
+                {getRoleLabel(rol)}
+              </span>
             </div>
           </div>
           
           <button 
             onClick={signOut}
-            className="w-full flex items-center justify-center gap-2 py-2.5 bg-white dark:bg-neutral-800 text-red-500 rounded-xl text-[10px] font-black uppercase tracking-widest border border-red-50 dark:border-red-900/20 hover:bg-red-50 dark:hover:bg-red-900/20 transition-all shadow-sm active:scale-95 group"
+            className="w-full mt-4 flex items-center justify-center gap-2 py-3 bg-white dark:bg-neutral-800 text-red-500 rounded-xl text-[10px] font-black uppercase tracking-widest border border-red-50 dark:border-red-900/20 hover:bg-red-50 dark:hover:bg-red-900/20 shadow-sm active:scale-95 transition-all group"
           >
             <span className="group-hover:translate-x-1 transition-transform">🚪</span>
             Cerrar Sesión
