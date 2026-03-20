@@ -1,4 +1,58 @@
+"use client";
+
+import { useEffect, useState } from "react";
+import { supabase } from "@/lib/supabase";
+import Link from "next/link";
+
 export default function Dashboard() {
+  const [stats, setStats] = useState({
+    stockBajo: 0,
+    valuacion: 0,
+    reparacionesActivas: 0,
+    ingresosMes: 0,
+    flujoCaja: 0
+  });
+  const [actividad, setActividad] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    fetchDashboardData();
+  }, []);
+
+  async function fetchDashboardData() {
+    setLoading(true);
+    
+    // 1. Stock Bajo
+    const { data: stockBajoData } = await supabase
+      .from("inventario")
+      .select("id")
+      .lte("stock_actual", "stock_minimo");
+    
+    // 2. Valuación (Suma de precio_compra * stock)
+    const { data: invData } = await supabase
+      .from("inventario")
+      .select("precio_compra, stock_actual");
+    
+    const totalValuacion = invData?.reduce((acc: number, curr: { precio_compra: number; stock_actual: number }) => 
+      acc + (curr.precio_compra * curr.stock_actual), 0) || 0;
+
+    // 3. Actividad Reciente (Últimos 3 productos)
+    const { data: recents } = await supabase
+      .from("inventario")
+      .select("nombre, created_at")
+      .order("created_at", { ascending: false })
+      .limit(3);
+
+    setStats(prev => ({
+      ...prev,
+      stockBajo: stockBajoData?.length || 0,
+      valuacion: totalValuacion
+    }));
+
+    if (recents) setActividad(recents);
+    setLoading(false);
+  }
+
   return (
     <div className="max-w-7xl mx-auto space-y-8">
       {/* Bienvenida y Acciones Críticas */}
@@ -26,11 +80,13 @@ export default function Dashboard() {
 
       {/* Tarjetas de Resumen (Stats Profesionales) */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-6">
-        {/* Flujo de Caja */}
+        {/* Valuación de Inventario (Reemplaza Flujo de Caja temporalmente hasta tener módulo de finanzas) */}
         <div className="p-6 bg-white dark:bg-neutral-900 border border-neutral-200 dark:border-neutral-800 rounded-2xl shadow-sm">
-          <p className="text-xs font-bold text-neutral-500 dark:text-neutral-400 uppercase tracking-wider mb-2">Flujo de Caja</p>
-          <p className="text-2xl font-black text-neutral-900 dark:text-white">$0.00</p>
-          <div className="mt-2 text-xs text-neutral-500 italic">Efectivo total disponible</div>
+          <p className="text-xs font-bold text-neutral-500 dark:text-neutral-400 uppercase tracking-wider mb-2">Valuación Inventario</p>
+          <p className="text-2xl font-black text-neutral-900 dark:text-white">
+            ${stats.valuacion.toLocaleString()}
+          </p>
+          <div className="mt-2 text-xs text-neutral-500 italic">Costo total en mercancía</div>
         </div>
 
         {/* Ingresos del Mes */}
@@ -50,10 +106,12 @@ export default function Dashboard() {
           </div>
         </div>
 
-        {/* Alertas de Stock */}
+        {/* Alertas de Stock (Real) */}
         <div className="p-6 bg-white dark:bg-neutral-900 border border-neutral-200 dark:border-neutral-800 rounded-2xl shadow-sm">
           <p className="text-xs font-bold text-neutral-500 dark:text-neutral-400 uppercase tracking-wider mb-2">Stock Bajo</p>
-          <p className="text-2xl font-black text-neutral-900 dark:text-white">0</p>
+          <p className={`text-2xl font-black ${stats.stockBajo > 0 ? 'text-red-500' : 'text-neutral-900 dark:text-white'}`}>
+            {stats.stockBajo}
+          </p>
           <div className="mt-2 text-xs text-neutral-500 italic">Productos en alerta</div>
         </div>
 
@@ -104,12 +162,11 @@ export default function Dashboard() {
             </div>
           </div>
 
-          {/* Acciones Rápidas Complementarias */}
           <div className="bg-neutral-900 dark:bg-neutral-800 p-6 rounded-2xl shadow-xl">
              <h3 className="text-sm font-bold text-neutral-400 dark:text-neutral-500 mb-4 uppercase tracking-widest">Gestión de Inventario</h3>
              <div className="grid grid-cols-1 gap-2">
-                <button className="w-full text-left py-2 text-white dark:text-white font-bold hover:translate-x-1 transition-transform">➕ Stock de Relojes</button>
-                <button className="w-full text-left py-2 text-white dark:text-white font-bold hover:translate-x-1 transition-transform">🔧 Stock de Repuestos</button>
+                <Link href="/inventario" className="w-full text-left py-2 text-white dark:text-white font-bold hover:translate-x-1 transition-transform block">📦 Ver Todo el Stock</Link>
+                <Link href="/inventario" className="w-full text-left py-2 text-white dark:text-white font-bold hover:translate-x-1 transition-transform block">🔧 Gestionar Repuestos</Link>
                 <button className="w-full text-left py-2 text-white dark:text-white font-bold hover:translate-x-1 transition-transform">📋 Lista de Precios</button>
              </div>
           </div>
@@ -122,16 +179,43 @@ export default function Dashboard() {
           🕒 Actividad Reciente del Sistema
         </h2>
         <div className="space-y-4">
-          <div className="flex items-center justify-between p-4 bg-neutral-50 dark:bg-neutral-800/50 rounded-xl border border-neutral-100 dark:border-neutral-800">
-            <div className="flex items-center gap-4">
-              <span className="w-2 h-2 rounded-full bg-green-500"></span>
-              <div>
-                <p className="text-sm font-bold text-neutral-900 dark:text-white">Sistema Inicializado</p>
-                <p className="text-xs text-neutral-500">Se completó la configuración base del Dashboard</p>
+          {actividad.length === 0 ? (
+            <div className="flex items-center justify-between p-4 bg-neutral-50 dark:bg-neutral-800/50 rounded-xl border border-neutral-100 dark:border-neutral-800">
+              <div className="flex items-center gap-4">
+                <span className="w-2 h-2 rounded-full bg-green-500"></span>
+                <div>
+                  <p className="text-sm font-bold text-neutral-900 dark:text-white">Sistema Inicializado</p>
+                  <p className="text-xs text-neutral-500">Se completó la configuración base del Dashboard</p>
+                </div>
               </div>
+              <span className="text-xs font-medium text-neutral-400">Ahora mismo</span>
             </div>
-            <span className="text-xs font-medium text-neutral-400">Ahora mismo</span>
-          </div>
+          ) : (
+            <>
+              {actividad.map((item, idx) => (
+                <div key={idx} className="flex items-center justify-between p-4 bg-neutral-50 dark:bg-neutral-800/50 rounded-xl border border-neutral-100 dark:border-neutral-800 animate-in slide-in-from-left duration-300" style={{ animationDelay: `${idx * 100}ms` }}>
+                  <div className="flex items-center gap-4">
+                    <span className="w-2 h-2 rounded-full bg-blue-500 shadow-[0_0_8px_rgba(59,130,246,0.5)]"></span>
+                    <div>
+                      <p className="text-sm font-bold text-neutral-900 dark:text-white">Producto Registrado</p>
+                      <p className="text-xs text-neutral-500">Se añadió "<span className="font-bold text-neutral-700 dark:text-neutral-300">{item.nombre}</span>" al inventario</p>
+                    </div>
+                  </div>
+                  <span className="text-xs font-medium text-neutral-400">
+                    {new Date(item.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                  </span>
+                </div>
+              ))}
+              <div className="flex items-center justify-between p-4 bg-neutral-50/50 dark:bg-neutral-800/20 rounded-xl border border-neutral-100/50 dark:border-neutral-800/50">
+                <div className="flex items-center gap-4">
+                  <span className="w-2 h-2 rounded-full bg-green-500"></span>
+                  <div>
+                    <p className="text-sm font-bold text-neutral-900 dark:text-white opacity-60">Sistema Inicializado</p>
+                  </div>
+                </div>
+              </div>
+            </>
+          )}
           
           <div className="flex items-center justify-between p-4 opacity-50">
             <div className="flex items-center gap-4">
