@@ -30,7 +30,10 @@ export default function Inventario() {
   const [loading, setLoading] = useState(true);
   const [filtroCategoria, setFiltroCategoria] = useState<string>("todas");
   const [isModalOpen, setIsModalOpen] = useState(false);
+  const [isCategoryModalOpen, setIsCategoryModalOpen] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [nuevaCategoriaNombre, setNuevaCategoriaNombre] = useState("");
 
   // Estado para el nuevo producto
   const [nuevoProducto, setNuevoProducto] = useState({
@@ -86,29 +89,87 @@ export default function Inventario() {
     e.preventDefault();
     setSaving(true);
 
+    if (editingId) {
+      // MODO EDICIÓN
+      const { error } = await supabase
+        .from("inventario")
+        .update(nuevoProducto)
+        .eq("id", editingId);
+
+      if (error) {
+        alert("Error al actualizar: " + error.message);
+      } else {
+        setIsModalOpen(false);
+        resetForm();
+        fetchData();
+      }
+    } else {
+      // MODO CREACIÓN
+      const { error } = await supabase
+        .from("inventario")
+        .insert([nuevoProducto]);
+
+      if (error) {
+        alert("Error al guardar: " + error.message);
+      } else {
+        setIsModalOpen(false);
+        resetForm();
+        fetchData();
+      }
+    }
+    setSaving(false);
+  }
+
+  async function handleAddCategory(e: React.FormEvent) {
+    e.preventDefault();
+    if (!nuevaCategoriaNombre.trim()) return;
+    
+    setSaving(true);
     const { error } = await supabase
-      .from("inventario")
-      .insert([nuevoProducto]);
+      .from("categorias")
+      .insert([{ nombre: nuevaCategoriaNombre }]);
 
     if (error) {
-      alert("Error al guardar el producto: " + error.message);
+      alert("Error al crear categoría: " + error.message);
     } else {
-      setIsModalOpen(false);
-      setNuevoProducto({
-        nombre: "",
-        marca: "",
-        modelo: "",
-        precio_compra: 0,
-        precio_venta: 0,
-        stock_actual: 0,
-        stock_minimo: 5,
-        categoria_id: "",
-        estado: "Nuevo",
-        es_vendible: true
-      });
+      setIsCategoryModalOpen(false);
+      setNuevaCategoriaNombre("");
       fetchData();
     }
     setSaving(false);
+  }
+
+  function resetForm() {
+    setNuevoProducto({
+      nombre: "",
+      marca: "",
+      modelo: "",
+      precio_compra: 0,
+      precio_venta: 0,
+      stock_actual: 0,
+      stock_minimo: 5,
+      categoria_id: "",
+      estado: "Nuevo",
+      es_vendible: true
+    });
+    setEditingId(null);
+  }
+
+  function openEdit(prod: any) {
+    setEditingId(prod.id);
+    setNuevoProducto({
+      nombre: prod.nombre,
+      marca: prod.marca || "",
+      modelo: prod.modelo || "",
+      precio_compra: prod.precio_compra,
+      precio_venta: prod.precio_venta,
+      stock_actual: prod.stock_actual,
+      stock_minimo: prod.stock_minimo,
+      categoria_id: prod.categoria_id,
+      estado: prod.estado,
+      es_vendible: prod.es_vendible
+    });
+    setIsModalOpen(true);
   }
 
   return (
@@ -228,7 +289,10 @@ export default function Inventario() {
                       </span>
                     </td>
                     <td className="px-6 py-5 text-right">
-                      <button className="p-2 hover:bg-neutral-100 dark:hover:bg-neutral-800 rounded-lg transition-all text-neutral-400 hover:text-black dark:hover:text-white">
+                      <button 
+                        onClick={() => openEdit(prod)}
+                        className="p-2 hover:bg-neutral-100 dark:hover:bg-neutral-800 rounded-lg transition-all text-neutral-400 hover:text-black dark:hover:text-white"
+                      >
                         ✏️
                       </button>
                     </td>
@@ -246,8 +310,10 @@ export default function Inventario() {
           <div className="bg-white dark:bg-neutral-900 w-full max-w-2xl rounded-3xl shadow-2xl overflow-hidden animate-in fade-in zoom-in duration-200">
             <div className="p-8">
               <div className="flex justify-between items-center mb-6">
-                <h2 className="text-2xl font-black text-neutral-900 dark:text-white">✨ Nuevo Producto</h2>
-                <button onClick={() => setIsModalOpen(false)} className="text-neutral-400 hover:text-black dark:hover:text-white">✕</button>
+                <h2 className="text-2xl font-black text-neutral-900 dark:text-white">
+                  {editingId ? "✏️ Editar Producto" : "✨ Nuevo Producto"}
+                </h2>
+                <button onClick={() => setIsModalOpen(false)} className="text-neutral-400 hover:text-black dark:hover:text-white text-xl">✕</button>
               </div>
 
               <form onSubmit={handleSave} className="grid grid-cols-1 md:grid-cols-2 gap-6">
@@ -361,7 +427,7 @@ export default function Inventario() {
                     type="submit" 
                     className="w-full py-4 bg-black dark:bg-white text-white dark:text-black rounded-2xl font-black uppercase tracking-widest hover:scale-[1.02] active:scale-[0.98] transition-all disabled:opacity-50 shadow-xl"
                   >
-                    {saving ? "Guardando..." : "Confirmar Registro"}
+                    {saving ? "Guardando..." : (editingId ? "Actualizar Producto" : "Confirmar Registro")}
                   </button>
                 </div>
               </form>
@@ -369,6 +435,53 @@ export default function Inventario() {
           </div>
         </div>
       )}
+
+      {/* MODAL DE NUEVA CATEGORÍA */}
+      {isCategoryModalOpen && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[60] flex items-center justify-center p-4">
+          <div className="bg-white dark:bg-neutral-900 w-full max-w-sm rounded-3xl shadow-2xl overflow-hidden animate-in fade-in zoom-in duration-200">
+            <div className="p-8">
+              <div className="flex justify-between items-center mb-6">
+                <h2 className="text-xl font-black text-neutral-900 dark:text-white">🏷️ Nueva Categoría</h2>
+                <button onClick={() => setIsCategoryModalOpen(false)} className="text-neutral-400 hover:text-black dark:hover:text-white text-xl">✕</button>
+              </div>
+              <form onSubmit={handleAddCategory} className="space-y-4">
+                <div>
+                  <label className="block text-[10px] font-black uppercase tracking-widest text-neutral-400 mb-2 font-mono">Nombre</label>
+                  <input 
+                    autoFocus
+                    required
+                    type="text" 
+                    className="w-full bg-neutral-50 dark:bg-neutral-800 border-none rounded-xl px-4 py-3 text-sm focus:ring-2 focus:ring-black dark:focus:ring-white transition-all font-bold"
+                    placeholder="Ej. Herramientas"
+                    value={nuevaCategoriaNombre}
+                    onChange={(e) => setNuevaCategoriaNombre(e.target.value)}
+                  />
+                </div>
+                <button 
+                  disabled={saving}
+                  type="submit" 
+                  className="w-full py-3 bg-neutral-900 dark:bg-white text-white dark:text-black rounded-xl font-black uppercase text-xs tracking-widest hover:scale-[1.05] transition-all disabled:opacity-50"
+                >
+                  {saving ? "Creando..." : "Crear Categoría"}
+                </button>
+              </form>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Botón Flotante para Categorías (Opcional, pero útil) */}
+      <button 
+        onClick={() => setIsCategoryModalOpen(true)}
+        className="fixed bottom-8 right-8 w-12 h-12 bg-white dark:bg-neutral-800 border border-neutral-200 dark:border-neutral-700 rounded-full shadow-2xl flex items-center justify-center text-xl hover:scale-110 active:scale-95 transition-all z-40 group"
+        title="Gestionar Categorías"
+      >
+        🏷️
+        <span className="absolute right-14 bg-black text-white text-[10px] font-bold px-2 py-1 rounded opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap pointer-events-none">
+          Añadir Categoría
+        </span>
+      </button>
     </div>
   );
 }

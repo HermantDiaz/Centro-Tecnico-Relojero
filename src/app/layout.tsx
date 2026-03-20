@@ -11,6 +11,8 @@ export const metadata: Metadata = {
   description: "Gestión inteligente para relojerías modernas",
 };
 
+import Sidebar from "@/components/Sidebar";
+
 export default function RootLayout({
   children,
 }: Readonly<{
@@ -20,46 +22,8 @@ export default function RootLayout({
     <html lang="es" suppressHydrationWarning>
       <body className={`${inter.className} bg-neutral-50 dark:bg-black text-neutral-900 dark:text-neutral-100`}>
         <div className="flex h-screen overflow-hidden">
-          {/* Sidebar Lateral */}
-          <aside className="w-64 bg-white dark:bg-neutral-900 border-r border-neutral-200 dark:border-neutral-800 flex flex-col hidden md:flex">
-            <div className="p-6 flex items-center gap-2">
-              <Image src="/logobuenoVectorizado.svg" alt="CTR Logo" width={64} height={64} className="dark:invert object-contain" />
-              <div className="flex flex-col">
-                <span className="font-black text-xl leading-none tracking-tighter">RELOJERÍA</span>
-                <span className="text-[10px] font-bold text-neutral-400 tracking-[0.2em] uppercase">Software System</span>
-              </div>
-            </div>
-            
-            <nav className="flex-1 px-4 space-y-2 mt-4">
-              <Link href="/" className="flex items-center gap-3 px-4 py-3 bg-black text-white dark:bg-white dark:text-black rounded-xl font-medium transition-all">
-                <span>📊 Dashboard</span>
-              </Link>
-              <Link href="/inventario" className="flex items-center gap-3 px-4 py-3 text-neutral-600 dark:text-neutral-400 hover:bg-neutral-100 dark:hover:bg-neutral-800 rounded-xl transition-all">
-                <span>📦 Inventario</span>
-              </Link>
-              <Link href="/reparaciones" className="flex items-center gap-3 px-4 py-3 text-neutral-600 dark:text-neutral-400 hover:bg-neutral-100 dark:hover:bg-neutral-800 rounded-xl transition-all">
-                <span>🛠️ Reparaciones</span>
-              </Link>
-              <Link href="/caja" className="flex items-center gap-3 px-4 py-3 text-neutral-600 dark:text-neutral-400 hover:bg-neutral-100 dark:hover:bg-neutral-800 rounded-xl transition-all">
-                <span>💰 Caja / Finanzas</span>
-              </Link>
-              <Link href="/deudas" className="flex items-center gap-3 px-4 py-3 text-neutral-600 dark:text-neutral-400 hover:bg-neutral-100 dark:hover:bg-neutral-800 rounded-xl transition-all">
-                <span>🤝 Deudas</span>
-              </Link>
-            </nav>
-
-            <div className="p-4 border-t border-neutral-200 dark:border-neutral-800">
-              <div className="flex items-center gap-3 px-4 py-2 hover:bg-neutral-100 dark:hover:bg-neutral-800 rounded-xl cursor-pointer transition-all">
-                <div className="w-8 h-8 rounded-full bg-neutral-200 dark:bg-neutral-700 flex items-center justify-center font-bold text-xs">
-                  AD
-                </div>
-                <div className="flex flex-col overflow-hidden">
-                  <span className="text-sm font-semibold truncate text-black dark:text-white">Administrador</span>
-                  <span className="text-xs text-neutral-500 truncate">Herman Diaz</span>
-                </div>
-              </div>
-            </div>
-          </aside>
+          {/* Sidebar Lateral (Componente Cliente) */}
+          <Sidebar />
 
           {/* Área de Contenido Principal */}
           <main className="flex-1 overflow-y-auto bg-neutral-50 dark:bg-black p-4 md:p-8">
