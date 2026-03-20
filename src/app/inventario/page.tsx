@@ -15,7 +15,6 @@ interface Producto {
   stock_minimo: number;
   estado: string;
   categoria_id: string;
-  alerta_activa: boolean;
   categorias?: {
     nombre: string;
   };
@@ -38,7 +37,7 @@ export default function Inventario() {
   const [nuevaCategoriaNombre, setNuevaCategoriaNombre] = useState("");
   const [valuacionTotal, setValuacionTotal] = useState(0);
 
-  // Estado para el producto (con alerta controlada)
+  // Estado para el producto (UI)
   const [nuevoProducto, setNuevoProducto] = useState({
     nombre: "",
     marca: "",
@@ -64,7 +63,7 @@ export default function Inventario() {
     const { data: catData } = await supabase.from("categorias").select("id, nombre");
     if (catData) setCategorias(catData);
 
-    // Fetch Productos con Join de Categoría
+    // Fetch Productos
     let query = supabase
       .from("inventario")
       .select(`
@@ -85,7 +84,6 @@ export default function Inventario() {
       console.error("Error fetching inventory:", error);
     } else {
       setProductos(prodData || []);
-      // Calcular Valuación Total
       const total = (prodData || []).reduce((acc: number, curr: any) => acc + (curr.precio_compra * curr.stock_actual), 0);
       setValuacionTotal(total);
     }
@@ -96,11 +94,17 @@ export default function Inventario() {
     e.preventDefault();
     setSaving(true);
 
+    // Preparar objeto para Supabase (eliminar alerta_activa y ajustar stock_minimo)
+    const { alerta_activa, ...datosAEnviar } = nuevoProducto;
+    const finalData = {
+      ...datosAEnviar,
+      stock_minimo: alerta_activa ? nuevoProducto.stock_minimo : -1
+    };
+
     if (editingId) {
-      // MODO EDICIÓN
       const { error } = await supabase
         .from("inventario")
-        .update(nuevoProducto)
+        .update(finalData)
         .eq("id", editingId);
 
       if (error) {
@@ -111,10 +115,9 @@ export default function Inventario() {
         fetchData();
       }
     } else {
-      // MODO CREACIÓN
       const { error } = await supabase
         .from("inventario")
-        .insert([nuevoProducto]);
+        .insert([finalData]);
 
       if (error) {
         alert("Error al guardar: " + error.message);
@@ -172,11 +175,11 @@ export default function Inventario() {
       precio_compra: prod.precio_compra,
       precio_venta: prod.precio_venta,
       stock_actual: prod.stock_actual,
-      stock_minimo: prod.stock_minimo,
+      stock_minimo: prod.stock_minimo === -1 ? 5 : prod.stock_minimo,
       categoria_id: prod.categoria_id,
       estado: prod.estado,
       es_vendible: prod.es_vendible,
-      alerta_activa: prod.alerta_activa ?? true
+      alerta_activa: prod.stock_minimo !== -1
     });
     setIsModalOpen(true);
   }
@@ -207,7 +210,7 @@ export default function Inventario() {
         </button>
       </section>
 
-      {/* Filtros Rápidos */}
+      {/* Filtros */}
       <section className="flex flex-wrap gap-2">
         <button 
           onClick={() => setFiltroCategoria("todas")}
@@ -234,7 +237,7 @@ export default function Inventario() {
         ))}
       </section>
 
-      {/* Tabla de Inventario */}
+      {/* Tabla */}
       <div className="bg-white dark:bg-neutral-900 border border-neutral-200 dark:border-neutral-800 rounded-2xl overflow-hidden shadow-sm">
         {loading ? (
           <div className="p-20 flex flex-col items-center justify-center space-y-4">
@@ -245,9 +248,6 @@ export default function Inventario() {
           <div className="p-20 flex flex-col items-center justify-center text-center">
             <span className="text-5xl mb-4 grayscale opacity-50">🔍</span>
             <h3 className="text-lg font-bold text-neutral-900 dark:text-white mb-2">No hay productos</h3>
-            <p className="text-neutral-500 max-w-xs mb-6 text-sm italic">
-              Empatía con el usuario: "Parece que no tienes artículos registrados aún".
-            </p>
             <button 
               onClick={() => { resetForm(); setIsModalOpen(true); }}
               className="px-5 py-2 border border-neutral-200 dark:border-neutral-800 rounded-xl text-sm font-bold hover:bg-neutral-50 dark:hover:bg-neutral-800 transition-all"
@@ -283,15 +283,16 @@ export default function Inventario() {
                     <td className="px-6 py-5">
                       <div className="flex flex-col text-[11px] space-y-1">
                         <span className="text-neutral-500 font-medium">Marca: <span className="text-neutral-800 dark:text-neutral-200 font-bold">{prod.marca || 'N/A'}</span></span>
+                        <span className="text-neutral-500 font-medium">Modelo: <span className="text-neutral-800 dark:text-neutral-200 font-bold">{prod.modelo || 'N/A'}</span></span>
                         <span className="text-neutral-500 font-medium">Estado: <span className="text-neutral-800 dark:text-neutral-200 font-bold">{prod.estado}</span></span>
                       </div>
                     </td>
                     <td className="px-6 py-5">
                       <div className="flex items-center gap-3">
-                        <span className={`text-sm font-black ${prod.alerta_activa && prod.stock_actual <= prod.stock_minimo ? 'text-red-500' : 'text-neutral-900 dark:text-white'}`}>
+                        <span className={`text-sm font-black ${prod.stock_minimo !== -1 && prod.stock_actual <= prod.stock_minimo ? 'text-red-500' : 'text-neutral-900 dark:text-white'}`}>
                           {prod.stock_actual}
                         </span>
-                        {(prod.alerta_activa && prod.stock_actual <= prod.stock_minimo) && (
+                        {(prod.stock_minimo !== -1 && prod.stock_actual <= prod.stock_minimo) && (
                           <span className="px-2 py-0.5 bg-red-50 dark:bg-red-950/30 text-[9px] text-red-600 dark:text-red-400 rounded-md font-black animate-pulse border border-red-100 dark:border-red-900/50">
                             REABASTECER
                           </span>
@@ -319,9 +320,9 @@ export default function Inventario() {
         )}
       </div>
 
-      {/* MODAL DE PRODUCTO (Optimizado) */}
+      {/* MODAL PRODUCTO */}
       {isModalOpen && (
-        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4 text-left">
           <div className="bg-white dark:bg-neutral-900 w-full max-w-xl rounded-2xl shadow-2xl overflow-hidden animate-in fade-in zoom-in duration-200 border border-neutral-200 dark:border-neutral-800">
             <div className="max-h-[85vh] overflow-y-auto custom-scrollbar">
               <div className="p-6 md:p-8">
@@ -334,11 +335,11 @@ export default function Inventario() {
 
                 <form onSubmit={handleSave} className="grid grid-cols-1 md:grid-cols-2 gap-5">
                   <div className="md:col-span-2">
-                    <label className="block text-[10px] font-black uppercase tracking-widest text-neutral-400 mb-2 font-mono">Nombre del Producto</label>
+                    <label className="block text-[10px] font-black uppercase tracking-widest text-neutral-400 mb-2 font-mono">Nombre</label>
                     <input 
                       required
                       type="text" 
-                      className="w-full bg-neutral-50 dark:bg-neutral-800 border border-neutral-100 dark:border-neutral-700 rounded-xl px-4 py-3 text-sm focus:ring-2 focus:ring-black dark:focus:ring-white transition-all font-bold"
+                      className="w-full bg-neutral-50 dark:bg-neutral-800 border-none rounded-xl px-4 py-3 text-sm focus:ring-2 focus:ring-black dark:focus:ring-white transition-all font-bold"
                       placeholder="Ej. Batería CR2032"
                       value={nuevoProducto.nombre}
                       onChange={(e) => setNuevoProducto({...nuevoProducto, nombre: e.target.value})}
@@ -349,7 +350,7 @@ export default function Inventario() {
                     <label className="block text-[10px] font-black uppercase tracking-widest text-neutral-400 mb-2 font-mono">Marca</label>
                     <input 
                       type="text" 
-                      className="w-full bg-neutral-50 dark:bg-neutral-800 border border-neutral-100 dark:border-neutral-700 rounded-xl px-4 py-3 text-sm focus:ring-2 focus:ring-black dark:focus:ring-white transition-all font-bold"
+                      className="w-full bg-neutral-50 dark:bg-neutral-800 border-none rounded-xl px-4 py-3 text-sm focus:ring-2 focus:ring-black dark:focus:ring-white transition-all font-bold"
                       placeholder="Ej. Sony"
                       value={nuevoProducto.marca}
                       onChange={(e) => setNuevoProducto({...nuevoProducto, marca: e.target.value})}
@@ -360,7 +361,7 @@ export default function Inventario() {
                     <label className="block text-[10px] font-black uppercase tracking-widest text-neutral-400 mb-2 font-mono">Modelo</label>
                     <input 
                       type="text" 
-                      className="w-full bg-neutral-50 dark:bg-neutral-800 border border-neutral-100 dark:border-neutral-700 rounded-xl px-4 py-3 text-sm focus:ring-2 focus:ring-black dark:focus:ring-white transition-all font-bold"
+                      className="w-full bg-neutral-50 dark:bg-neutral-800 border-none rounded-xl px-4 py-3 text-sm focus:ring-2 focus:ring-black dark:focus:ring-white transition-all font-bold"
                       placeholder="Opcional"
                       value={nuevoProducto.modelo}
                       onChange={(e) => setNuevoProducto({...nuevoProducto, modelo: e.target.value})}
@@ -371,7 +372,7 @@ export default function Inventario() {
                     <label className="block text-[10px] font-black uppercase tracking-widest text-neutral-400 mb-2 font-mono">Categoría</label>
                     <select 
                       required
-                      className="w-full bg-neutral-50 dark:bg-neutral-800 border border-neutral-100 dark:border-neutral-700 rounded-xl px-4 py-3 text-sm focus:ring-2 focus:ring-black dark:focus:ring-white transition-all font-bold"
+                      className="w-full bg-neutral-50 dark:bg-neutral-800 border-none rounded-xl px-4 py-3 text-sm focus:ring-2 focus:ring-black dark:focus:ring-white transition-all font-bold"
                       value={nuevoProducto.categoria_id}
                       onChange={(e) => setNuevoProducto({...nuevoProducto, categoria_id: e.target.value})}
                     >
@@ -383,57 +384,53 @@ export default function Inventario() {
                   <div>
                     <label className="block text-[10px] font-black uppercase tracking-widest text-neutral-400 mb-2 font-mono">Estado</label>
                     <select 
-                      className="w-full bg-neutral-50 dark:bg-neutral-800 border border-neutral-100 dark:border-neutral-700 rounded-xl px-4 py-3 text-sm focus:ring-2 focus:ring-black dark:focus:ring-white transition-all font-bold"
+                      className="w-full bg-neutral-50 dark:bg-neutral-800 border-none rounded-xl px-4 py-3 text-sm focus:ring-2 focus:ring-black dark:focus:ring-white transition-all font-bold"
                       value={nuevoProducto.estado}
                       onChange={(e) => setNuevoProducto({...nuevoProducto, estado: e.target.value})}
                     >
                       <option value="Nuevo">Nuevo</option>
                       <option value="Usado">Usado</option>
                       <option value="Restaurado">Restaurado</option>
-                      <option value="N/A">N/A</option>
                     </select>
                   </div>
 
                   <div>
-                    <label className="block text-[10px] font-black uppercase tracking-widest text-neutral-400 mb-2 font-mono">Precio Compra</label>
+                    <label className="block text-[10px] font-black uppercase tracking-widest text-neutral-400 mb-2 font-mono">P. Compra</label>
                     <input 
                       type="number" 
-                      step="0.01"
-                      className="w-full bg-neutral-50 dark:bg-neutral-800 border border-neutral-100 dark:border-neutral-700 rounded-xl px-4 py-3 text-sm focus:ring-2 focus:ring-black dark:focus:ring-white transition-all font-bold"
+                      className="w-full bg-neutral-50 dark:bg-neutral-800 border-none rounded-xl px-4 py-3 text-sm transition-all font-bold"
                       value={nuevoProducto.precio_compra}
                       onChange={(e) => setNuevoProducto({...nuevoProducto, precio_compra: parseFloat(e.target.value)})}
                     />
                   </div>
 
                   <div>
-                    <label className="block text-[10px] font-black uppercase tracking-widest text-neutral-400 mb-2 font-mono">Precio Venta</label>
+                    <label className="block text-[10px] font-black uppercase tracking-widest text-neutral-400 mb-2 font-mono">P. Venta</label>
                     <input 
-                      required
                       type="number" 
-                      step="0.01"
-                      className="w-full bg-neutral-50 dark:bg-neutral-800 border border-neutral-100 dark:border-neutral-700 rounded-xl px-4 py-3 text-sm focus:ring-2 focus:ring-black dark:focus:ring-white transition-all font-bold text-green-600 dark:text-green-400"
+                      className="w-full bg-neutral-50 dark:bg-neutral-800 border-none rounded-xl px-4 py-3 text-sm transition-all font-bold text-green-600"
                       value={nuevoProducto.precio_venta}
                       onChange={(e) => setNuevoProducto({...nuevoProducto, precio_venta: parseFloat(e.target.value)})}
                     />
                   </div>
 
                   <div>
-                    <label className="block text-[10px] font-black uppercase tracking-widest text-neutral-400 mb-2 font-mono">Stock Actual</label>
+                    <label className="block text-[10px] font-black uppercase tracking-widest text-neutral-400 mb-2 font-mono">Stock Act.</label>
                     <input 
                       type="number" 
-                      className="w-full bg-neutral-50 dark:bg-neutral-800 border border-neutral-100 dark:border-neutral-700 rounded-xl px-4 py-3 text-sm focus:ring-2 focus:ring-black dark:focus:ring-white transition-all font-bold"
+                      className="w-full bg-neutral-50 dark:bg-neutral-800 border-none rounded-xl px-4 py-3 text-sm transition-all font-bold"
                       value={nuevoProducto.stock_actual}
                       onChange={(e) => setNuevoProducto({...nuevoProducto, stock_actual: parseInt(e.target.value)})}
                     />
                   </div>
 
                   <div>
-                    <label className="block text-[10px] font-black uppercase tracking-widest text-neutral-400 mb-2 font-mono">Config. de Alerta</label>
-                    <div className="flex items-center gap-3">
+                    <label className="block text-[10px] font-black uppercase tracking-widest text-neutral-400 mb-2 font-mono">Alerta</label>
+                    <div className="flex items-center gap-2">
                       <input 
                         disabled={!nuevoProducto.alerta_activa}
                         type="number" 
-                        className={`w-20 bg-neutral-50 dark:bg-neutral-800 border border-neutral-100 dark:border-neutral-700 rounded-xl px-4 py-3 text-sm focus:ring-2 focus:ring-black dark:focus:ring-white transition-all font-bold ${!nuevoProducto.alerta_activa ? 'opacity-30' : ''}`}
+                        className={`w-16 bg-neutral-50 dark:bg-neutral-800 border-none rounded-xl px-3 py-3 text-sm font-bold ${!nuevoProducto.alerta_activa ? 'opacity-30' : ''}`}
                         value={nuevoProducto.stock_minimo}
                         onChange={(e) => setNuevoProducto({...nuevoProducto, stock_minimo: parseInt(e.target.value)})}
                       />
@@ -441,10 +438,8 @@ export default function Inventario() {
                         onClick={() => setNuevoProducto({...nuevoProducto, alerta_activa: !nuevoProducto.alerta_activa})}
                         className={`flex-1 flex items-center justify-between px-3 py-3 rounded-xl border-2 cursor-pointer transition-all ${nuevoProducto.alerta_activa ? 'bg-amber-50 border-amber-200 text-amber-600' : 'bg-neutral-50 border-neutral-100 text-neutral-400 opacity-50'}`}
                       >
-                        <span className="text-[10px] font-black uppercase tracking-tighter">
-                          {nuevoProducto.alerta_activa ? '🔔 Alerta ACTIVA' : '🔕 Inactiva'}
-                        </span>
-                        <div className={`w-5 h-5 rounded-full border-2 flex items-center justify-center transition-all ${nuevoProducto.alerta_activa ? 'bg-amber-500 border-amber-500 shadow-md shadow-amber-500/30' : 'border-neutral-300'}`}>
+                        <span className="text-[9px] font-black">{nuevoProducto.alerta_activa ? 'ACTIVA' : 'OFF'}</span>
+                        <div className={`w-4 h-4 rounded-full border flex items-center justify-center transition-all ${nuevoProducto.alerta_activa ? 'bg-amber-500 border-amber-500' : 'border-neutral-300'}`}>
                           {nuevoProducto.alerta_activa && <span className="text-[10px] text-white">✓</span>}
                         </div>
                       </div>
@@ -455,9 +450,9 @@ export default function Inventario() {
                     <button 
                       disabled={saving}
                       type="submit" 
-                      className="w-full py-4 bg-neutral-900 dark:bg-white text-white dark:text-black rounded-2xl font-black uppercase tracking-widest hover:scale-[1.02] active:scale-[0.98] transition-all disabled:opacity-50 shadow-xl"
+                      className="w-full py-4 bg-neutral-900 dark:bg-white text-white dark:text-black rounded-2xl font-black uppercase tracking-widest hover:scale-[1.02] shadow-xl"
                     >
-                      {saving ? "Procesando..." : (editingId ? "Actualizar Producto" : "Finalizar Registro")}
+                      {saving ? "Procesando..." : (editingId ? "Actualizar" : "Guardar")}
                     </button>
                   </div>
                 </form>
@@ -467,51 +462,36 @@ export default function Inventario() {
         </div>
       )}
 
-      {/* MODAL DE NUEVA CATEGORÍA */}
+      {/* MODAL CATEGORIA */}
       {isCategoryModalOpen && (
         <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[60] flex items-center justify-center p-4">
-          <div className="bg-white dark:bg-neutral-900 w-full max-w-sm rounded-3xl shadow-2xl overflow-hidden animate-in fade-in zoom-in duration-200 border border-neutral-200 dark:border-neutral-800">
-            <div className="p-8">
-              <div className="flex justify-between items-center mb-6">
-                <h2 className="text-xl font-black text-neutral-900 dark:text-white">🏷️ Nueva Categoría</h2>
-                <button onClick={() => setIsCategoryModalOpen(false)} className="text-neutral-400 hover:text-black dark:hover:text-white text-xl">✕</button>
-              </div>
-              <form onSubmit={handleAddCategory} className="space-y-4">
-                <div>
-                  <label className="block text-[10px] font-black uppercase tracking-widest text-neutral-400 mb-2 font-mono">Nombre</label>
-                  <input 
-                    autoFocus
-                    required
-                    type="text" 
-                    className="w-full bg-neutral-50 dark:bg-neutral-800 border border-neutral-100 dark:border-neutral-700 rounded-xl px-4 py-3 text-sm focus:ring-2 focus:ring-black dark:focus:ring-white transition-all font-bold"
-                    placeholder="Ej. Herramientas"
-                    value={nuevaCategoriaNombre}
-                    onChange={(e) => setNuevaCategoriaNombre(e.target.value)}
-                  />
-                </div>
-                <button 
-                  disabled={saving}
-                  type="submit" 
-                  className="w-full py-3 bg-neutral-900 dark:bg-white text-white dark:text-black rounded-xl font-black uppercase text-xs tracking-widest hover:scale-[1.05] transition-all disabled:opacity-50 shadow-lg shadow-black/10 dark:shadow-white/5"
-                >
-                  {saving ? "Creando..." : "Crear Categoría"}
-                </button>
-              </form>
+          <div className="bg-white dark:bg-neutral-900 w-full max-w-sm rounded-3xl p-8 border border-neutral-200 dark:border-neutral-800 shadow-2xl">
+            <div className="flex justify-between items-center mb-6">
+              <h2 className="text-xl font-black text-neutral-900 dark:text-white">🏷️ Categoría</h2>
+              <button onClick={() => setIsCategoryModalOpen(false)} className="text-neutral-400 Hover:text-black">✕</button>
             </div>
+            <form onSubmit={handleAddCategory} className="space-y-4">
+              <input 
+                autoFocus required type="text" 
+                className="w-full bg-neutral-50 dark:bg-neutral-800 border-none rounded-xl px-4 py-3 text-sm font-bold"
+                placeholder="Ej. Herramientas"
+                value={nuevaCategoriaNombre}
+                onChange={(e) => setNuevaCategoriaNombre(e.target.value)}
+              />
+              <button disabled={saving} className="w-full py-3 bg-neutral-900 dark:bg-white text-white dark:text-black rounded-xl font-black uppercase text-xs tracking-widest">
+                {saving ? "Creando..." : "Crear"}
+              </button>
+            </form>
           </div>
         </div>
       )}
 
-      {/* Botón Flotante para Categorías */}
+      {/* BOTON FLOTANTE */}
       <button 
         onClick={() => setIsCategoryModalOpen(true)}
-        className="fixed bottom-8 right-8 w-14 h-14 bg-black dark:bg-white text-white dark:text-black rounded-full shadow-2xl flex items-center justify-center text-2xl hover:scale-110 active:scale-95 transition-all z-40 group border-4 border-white dark:border-neutral-900"
-        title="Gestionar Categorías"
+        className="fixed bottom-8 right-8 w-14 h-14 bg-black dark:bg-white text-white dark:text-black rounded-full shadow-2xl flex items-center justify-center text-2xl hover:scale-110 active:scale-95 transition-all z-40 border-4 border-white dark:border-neutral-900"
       >
         🏷️
-        <span className="absolute right-16 bg-black text-white text-[10px] font-bold px-3 py-1.5 rounded-lg opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap pointer-events-none shadow-xl border border-neutral-800">
-          Nueva Categoría
-        </span>
       </button>
     </div>
   );
