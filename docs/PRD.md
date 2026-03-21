@@ -1,100 +1,54 @@
 # ⌚ PRD: Sistema Administrativo RELOJERÍA IA
 
-**Versión:** 1.0 (MVP)
-**Propósito:** Digitalizar, automatizar y centralizar la gestión de una relojería para resolver problemas de desorden en el inventario, seguimiento de reparaciones, control de flujos de caja y gestión de deudas.
-**Stack Tecnológico Principal:** Next.js (React), bases de datos relacional (ej. PostgreSQL/Supabase), Tailwind CSS / Vanilla CSS moderno.
+**Estado:** Versión 1.1 (Modernizada)  
+**Documento de Referencia:** [Matriz de Trazabilidad (RTM)](file:///d:/Proyecto%20IA/RELOJERIA%20IA/docs/RTM.md)
 
 ---
 
-## 🎯 1. Objetivos del Producto
-*   **Eficiencia:** Reducir el tiempo de búsqueda de repuestos y estados de reparación.
-*   **Control Financiero:** Mantener un registro exacto de caja (ingresos/egresos) y cuentas por pagar/cobrar.
-*   **Experiencia del Cliente:** Generar tickets profesionales y tener trazabilidad exacta del estado de su reloj.
-*   **Prevención de Pérdidas:** Alertas automáticas de stock mínimo para evitar quedarse sin insumos clave.
+## 🎯 1. Resumen Ejecutivo
+Digitalizar y automatizar la gestión operativa de CTR Relojería, resolviendo la fragmentación de datos en inventario, reparaciones y finanzas mediante una plataforma centralizada basada en la nube.
 
----
+## 📈 2. KPIs (Indicadores Clave de Desempeño)
+| KPI | Meta (6 meses) |
+| :--- | :--- |
+| **Búsqueda de Stock** | Reducción del 80% en tiempo de consulta. |
+| **Exactitud de Caja** | 100% de coincidencia entre sistema y efectivo. |
+| **Tiempo de Reparación** | Visibilidad del 100% en cuellos de botella del taller. |
+| **Retención de Clientes** | Trazabilidad total de garantías para soporte post-venta. |
 
-## 📦 2. Módulo de Inventario (Relojes y Repuestos)
-El sistema debe permitir gestionar de forma dinámica las categorías y subcategorías del inventario.
+## 📦 3. Requerimientos de Inventario (INV)
+| ID | Descripción | Prioridad |
+| :--- | :--- | :---: |
+| **REQ-INV-001** | Categorización dinámica de artículos (Nuevos, Usados, Repuestos). | Alta |
+| **REQ-INV-002** | Registro de SKU/Código único por producto para búsqueda rápida. | Alta |
+| **REQ-INV-003** | Sistema de alertas de "Stock Bajo" configurable por artículo. | Alta |
+| **REQ-INV-004** | Valoración automática del inventario (Precio Compra * Stock). | Media |
+| **REQ-INV-005** | Marcado de productos como "No Vendibles" (uso interno taller). | Media |
 
-### 2.1. Categorías Principales
-1.  **Relojes para Venta:** Nuevos, Usados (Reacondicionados).
-2.  **Repuestos y Consumibles:** Baterías (CR2032, SR626SW), Correas (Cuero, Acero, Silicona), Cristales, Pines/Empaques/Sellos, Piezas Internas, Insumos de Taller.
+## 🛠️ 4. Requerimientos de Reparaciones (REP)
+| ID | Descripción | Prioridad |
+| :--- | :--- | :---: |
+| **REQ-REP-001** | Generación de ticket digital de recepción con datos del cliente y reloj. | Crítica |
+| **REQ-REP-002** | Flujo de estados (Recibido → En Diagnóstico → Reparado → Entregado). | Crítica |
+| **REQ-REP-003** | Registro de abonos y saldos pendientes por reparación. | Alta |
+| **REQ-REP-004** | Historial técnico de fallas por número de recibo. | Media |
 
-### 2.2. Campos del Modelo de Inventario (Entidades)
-*   **Interruptor (Flag):** `Es Vendible` (Sí/No). Permite descontar insumos usados en taller sin mostrarlos en la tienda.
-*   **Atributos Dinámicos de Reloj:** Marca, Modelo, Tipo (Dama, Caballero, Deportivo, etc.), Precio de Compra, Precio de Venta, Estado (Nuevo, Usado, Restaurado), Stock Actual, Ubicación (Vitrina, Bodega).
-*   **Alertas de Stock:**
-    *   Definición de "Stock Mínimo" por artículo.
-    *   Vista/Notificación visual en el Dashboard (ej. *"Quedan 2 baterías CR2032"*, *"Stock agotado de correas 20mm"*).
+## 💰 5. Requerimientos Financieros (FIN)
+| ID | Descripción | Prioridad |
+| :--- | :--- | :---: |
+| **REQ-FIN-001** | Registro de ingresos (ventas/reparaciones) y egresos (gastos). | Alta |
+| **REQ-FIN-002** | Dashboard con flujo de caja diario y mensual. | Alta |
+| **REQ-FIN-003** | Control de Deudas: Cuentas por Cobrar (Clientes) y Pagar (Prov). | Alta |
 
----
+## 🔐 6. Requerimientos de Seguridad (SEC)
+| ID | Descripción | Prioridad |
+| :--- | :--- | :---: |
+| **REQ-SEC-001** | Autenticación de usuarios mediantes Supabase Auth. | Crítica |
+| **REQ-SEC-002** | Control de acceso basado en roles (Admin, Técnico, Recepcionista). | Crítica |
+| **REQ-SEC-003** | Desactivación de cuentas de personal sin pérdida de historial. | Media |
 
-## 🛠️ 3. Módulo de Gestión de Reparaciones (El Taller)
-Seguimiento completo del ciclo de vida de un reloj que entra al taller.
-
-### 3.1. Campos Obligatorios del Recibo de Reparación
-*   **Identificación:** Número de Recibo (Generado automáticamente).
-*   **Datos del Cliente:** Nombre del Cliente, Teléfono.
-*   **Datos del Reloj:** Tipo de Reloj (Cuarzo, Mecánico, Pared, Otros), Marca, Modelo (Opcional), Estado Físico (Rayones, sin tapa, etc.).
-*   **Datos Técnicos:** Descripción de la falla, Diagnóstico técnico, Técnico asignado.
-*   **Fechas:** Fecha de Recepción, Fecha Estimada de Entrega, Fecha Final de Entrega.
-*   **Finanzas de la Reparación:** Precio Final, Abono (si aplica), Saldo Pendiente, Método de Pago.
-*   **Otros:** Estado de la reparación (Ver sección 3.2), Observaciones internas.
-
-### 3.2. Flujo de Estados de Reparación
-1.  Recibido
-2.  En diagnóstico
-3.  Esperando repuesto (Opcional)
-4.  En reparación
-5.  No repara
-6.  Listo
-7.  Entregado
-8.  Garantía (Si el cliente regresa por una falla en el periodo de cobertura).
-
-### 3.3. Funciones Adicionales
-*   **Generador de Tickets:** Creación de ticket de recepción optimizado para impresión (formato térmico y PDF). *(Iteración futura: Integración con API de WhatsApp para notificaciones).*
-
----
-
-## 💰 4. Módulo de Ingresos, Egresos y Reportes (La Caja)
-Control absoluto de la liquidez y salud financiera del negocio.
-
-### 4.1. Tipos de Transacciones
-*   **Ingresos:** Venta de relojes, Reparaciones, Venta de repuestos, Servicios rápidos (Ajustes, Cambios de pila).
-*   **Egresos:** Compra a proveedores, Sueldos, Alquiler, Servicios básicos (Agua, Luz, Internet), Compra de herramientas, Insumos del taller.
-
-### 4.2. Reportes Dinámicos (Dashboard Analytics)
-El panel principal debe mostrar de forma visual e intuitiva:
-*   Ganancias netas del mes en curso vs mes anterior.
-*   Gráfico de días con más ventas.
-*   Ranking del gasto más recurrente.
-*   Ranking del servicio/producto más vendido.
-*   Flujo de caja actual (Dinero disponible).
-
----
-
-## 🤝 5. Módulo de Cuentas por Cobrar y Pagar (Deudas)
-Gestión de créditos otorgados y recibidos.
-
-### 5.1. Cuentas por Pagar (A Proveedores)
-*   **Datos:** Nombre del proveedor, Monto Total, Fecha de la deuda, Fecha límite de pago, Concepto (Mercadería, repuestos, etc.).
-*   **Estados:** Pendiente, Pago Parcial, Pagado.
-
-### 5.2. Cuentas por Cobrar (A Clientes)
-*   Integración con Ventas/Reparaciones para registrar servicios a crédito.
-*   Capacidad de registrar abonos parciales.
-*   Cálculo automático del Saldo Pendiente.
-*   Historial completo de pagos por cliente.
-
----
-
-## 🔑 6. Seguridad y Usuarios (Roles)
-El sistema soportará múltiples usuarios para el negocio, con los siguientes roles y permisos predefinidos:
-*   **Administrador (Tú):** Acceso total e ilimitado a todos los módulos (Inventario, Taller, Finanzas, Deudas, Reportes y configuración de nuevos usuarios/categorías).
-*   **Técnico / Relojero (Tu hermano / Tú):** Acceso enfocado al módulo de Reparaciones (para cambiar estados, agregar diagnósticos, descontar repuestos) y visión de lectura del Inventario de Repuestos.
-*   **Cajero (Futuro):** Acceso exclusivo a la facturación, registro de abonos en cuentas por cobrar, y ventas directas. No podrá ver reportes de ganancias totales ni modificar inventarios de taller.
-*   **Recepcionista (Futuro):** Acceso para ingresar nuevos relojes al taller (crear tickets de recepción) y consultar estados para informar a los clientes, sin acceso a las cajas fuertes o métricas financieras.
-
----
-*Este documento actuará como la guía principal para la construcción del software en Next.js. Las prioridades pueden ajustarse según se avance en los sprints de desarrollo.*
+## ⚠️ 7. Riesgos y Mitigación
+- **Riesgo:** Pérdida de conectividad a internet en el local.
+  - *Mitigación:* Implementar persistencia local (WIP) o usar hotspot 4G.
+- **Riesgo:** Carga masiva de inventario manual tediosa.
+  - *Mitigación:* Próxima fase: Importación vía CSV/Excel.
