@@ -4,19 +4,25 @@ Este documento rastrea el cumplimiento de los requerimientos definidos en el [PR
 
 ## 🧩 Trazabilidad Técnica
 
-| ID Requerimiento | Módulo / Archivo de Implementación | Estado | Validación (Prueba) |
+## 🧩 Trazabilidad Técnica Detallada
+
+| ID Req | Módulo / Archivo de Implementación | Estado | Validación (Prueba) |
 | :--- | :--- | :---: | :--- |
-| **REQ-INV-001** | `inventario/page.tsx`, `DATABASE.md` | ✅ | Visualización de categorías en tabla y filtros. |
-| **REQ-INV-002** | `inventario/page.tsx` (campo `codigo`) | ✅ | Búsqueda por SKU en barra de búsqueda. |
-| **REQ-INV-003** | `inventario/page.tsx` (lógica `stock_minimo`) | ✅ | Alertas visuales "REABASTECER" en tabla. |
-| **REQ-INV-004** | `inventario/page.tsx` (Badge de Inversión) | ✅ | Cálculo en cabecera de Inventario. |
-| **REQ-INV-005** | `inventario/page.tsx` (flag `es_vendible`) | ✅ | Campo presente en el modal de edición. |
-| **REQ-REP-001** | `reparaciones/page.tsx` | 🏗️ | *En desarrollo (Fase Taller).* |
-| **REQ-REP-002** | `reparaciones/page.tsx` | 🏗️ | *En desarrollo (Fase Taller).* |
-| **REQ-FIN-001** | `finanzas/page.tsx` | 🏗️ | *En desarrollo (Fase Caja).* |
-| **REQ-SEC-001** | `AuthProvider.tsx`, `lib/supabase.ts` | ✅ | Redirección forzada a `/login`. |
-| **REQ-SEC-002** | `Sidebar.tsx`, `layout.tsx` | ✅ | Menú filtrado por rol y protección de rutas. |
-| **REQ-SEC-003** | `admin/usuarios/page.tsx` (flag `activo`) | ✅ | Bloqueo de sesión para perfiles inactivos. |
+| **REQ-FUN-001** | `AuthProvider.tsx`, `login/page.tsx` | ✅ | Flujo de login exitoso y manejo de errores. |
+| **REQ-FUN-002** | `inventario/page.tsx` | ✅ | Verificación de CRUD (Crear, Leer, Editar, Borrar). |
+| **REQ-FUN-003** | `inventario/page.tsx` (Lógica UI) | ✅ | Aparición de badge "REABASTECER" por stock bajo. |
+| **REQ-FUN-004** | `inventario/page.tsx` (Header Stats) | ✅ | Cálculo exacto de inversión basado en stock. |
+| **REQ-FUN-005** | `admin/usuarios/page.tsx` | ✅ | Gestión de perfiles y estados de activación. |
+| **REQ-NFC-001** | `layout.tsx`, `Sidebar.tsx` | ✅ | Cambio a modo móvil en viewport angosto. |
+| **REQ-NFC-002** | `globals.css`, `layout.tsx` | ✅ | Sincronización automática con tema del SO. |
+| **REQ-NFC-003** | `globals.css`, Clases Tailwind | ✅ | Efectos visuales, degradados y animaciones. |
+| **REQ-NFC-004** | `AuthProvider.tsx` (Splash Screen) | ✅ | Pantalla de carga inicial con branding CTR. |
+| **REQ-SYS-001** | `lib/supabase.ts` | ✅ | Persistencia de datos en PostgreSQL (Supabase). |
+| **REQ-SYS-002** | Estructura `/src/app/` | ✅ | Uso correcto de App Router y Server Components. |
+| **REQ-USR-001** | `Sidebar.tsx`, Dashboard | ✅ | Ocultación de finanzas para roles no admins. |
+| **REQ-USR-002** | `inventario/page.tsx` (Conditional BTNs) | ✅ | Restricción de acciones de escritura a técnicos. |
+| **REQ-DOM-001** | `inventario/page.tsx` (Save Logic) | ✅ | Bloqueo de guardado si el SKU ya existe. |
+| **REQ-DOM-002** | `inventario/page.tsx` (Form Inputs) | ✅ | Validación de números positivos y decimales. |
 
 ## 🔑 Leyenda de Estados
 - ✅ **Completado:** Implementado en código y verificado.

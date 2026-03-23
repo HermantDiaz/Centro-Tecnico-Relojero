@@ -16,39 +16,47 @@ Digitalizar y automatizar la gestión operativa de CTR Relojería, resolviendo l
 | **Tiempo de Reparación** | Visibilidad del 100% en cuellos de botella del taller. |
 | **Retención de Clientes** | Trazabilidad total de garantías para soporte post-venta. |
 
-## 📦 3. Requerimientos de Inventario (INV)
-| ID | Descripción | Prioridad |
-| :--- | :--- | :---: |
-| **REQ-INV-001** | Categorización dinámica de artículos (Nuevos, Usados, Repuestos). | Alta |
-| **REQ-INV-002** | Registro de SKU/Código único por producto para búsqueda rápida. | Alta |
-| **REQ-INV-003** | Sistema de alertas de "Stock Bajo" configurable por artículo. | Alta |
-| **REQ-INV-004** | Valoración automática del inventario (Precio Compra * Stock). | Media |
-| **REQ-INV-005** | Marcado de productos como "No Vendibles" (uso interno taller). | Media |
+## 📋 3. Catálogo Detallado de Requerimientos
 
-## 🛠️ 4. Requerimientos de Reparaciones (REP)
-| ID | Descripción | Prioridad |
-| :--- | :--- | :---: |
-| **REQ-REP-001** | Generación de ticket digital de recepción con datos del cliente y reloj. | Crítica |
-| **REQ-REP-002** | Flujo de estados (Recibido → En Diagnóstico → Reparado → Entregado). | Crítica |
-| **REQ-REP-003** | Registro de abonos y saldos pendientes por reparación. | Alta |
-| **REQ-REP-004** | Historial técnico de fallas por número de recibo. | Media |
+### 3.1. Requerimientos Funcionales (FUN)
+| ID | Nombre | Descripción | Actores | Prioridad | Criterios de Aceptación |
+| :--- | :--- | :--- | :--- | :---: | :--- |
+| **REQ-FUN-001** | Autenticación | Inicio de sesión seguro vía Email y Password. | Todos | Crítica | Acceso concedido solo a usuarios registrados; redirección automática al dashboard. |
+| **REQ-FUN-002** | Gestión de Inventario | CRUD completo de productos (Relojes, Repuestos). | Admin, Recepción | Alta | Los cambios se reflejan en tiempo real; validación de campos obligatorios. |
+| **REQ-FUN-003** | Control de Stock | Alertas visuales automáticas cuando el stock es ≤ stock_minimo. | Todos | Alta | Badge "REABASTECER" visible; cálculo automático en el dashboard. |
+| **REQ-FUN-004** | Valoración de Activos | Cálculo automático del valor de compra y venta total del stock. | Admin | Media | Suma total visible en la cabecera del inventario y dashboard administrativo. |
+| **REQ-FUN-005** | Gestión de Equipo | Administración de perfiles de usuario y estados de cuenta. | Admin | Alta | El Admin puede activar/desactivar usuarios; no puede desactivarse a sí mismo. |
 
-## 💰 5. Requerimientos Financieros (FIN)
-| ID | Descripción | Prioridad |
-| :--- | :--- | :---: |
-| **REQ-FIN-001** | Registro de ingresos (ventas/reparaciones) y egresos (gastos). | Alta |
-| **REQ-FIN-002** | Dashboard con flujo de caja diario y mensual. | Alta |
-| **REQ-FIN-003** | Control de Deudas: Cuentas por Cobrar (Clientes) y Pagar (Prov). | Alta |
+### 3.2. Requerimientos No Funcionales (NFC)
+| ID | Nombre | Descripción | Actores | Prioridad | Criterios de Aceptación |
+| :--- | :--- | :--- | :--- | :---: | :--- |
+| **REQ-NFC-001** | Diseño Responsivo | La interfaz debe adaptarse a móviles y tablets. | Todos | Alta | Sidebar se convierte en menú hamburguesa en pantallas < 768px. |
+| **REQ-NFC-002** | Modo Oscuro Dinámico | Soporte automático para temas claros y oscuros (System Preference). | Todos | Media | Cambio de colores inmediato sin recarga de página; scrollbars personalizados. |
+| **REQ-NFC-003** | Estética Premium | Uso de micro-animaciones y efectos de "Glassmorphism". | Todos | Media | Transiciones suaves al navegar y hover en tarjetas de estadísticas. |
+| **REQ-NFC-004** | Tiempo de Respuesta | Carga inicial y navegación fluida. | Todos | Alta | Pantalla de carga (Splash) con branding; navegación interna < 200ms. |
 
-## 🔐 6. Requerimientos de Seguridad (SEC)
-| ID | Descripción | Prioridad |
-| :--- | :--- | :---: |
-| **REQ-SEC-001** | Autenticación de usuarios mediantes Supabase Auth. | Crítica |
-| **REQ-SEC-002** | Control de acceso basado en roles (Admin, Técnico, Recepcionista). | Crítica |
-| **REQ-SEC-003** | Desactivación de cuentas de personal sin pérdida de historial. | Media |
+### 3.3. Requerimientos de Sistema (SYS)
+| ID | Nombre | Descripción | Actores | Prioridad | Criterios de Aceptación |
+| :--- | :--- | :--- | :--- | :---: | :--- |
+| **REQ-SYS-001** | Persistencia Supabase | Sincronización bidireccional con PostgreSQL. | Sistema | Crítica | Datos persistentes tras cierre de sesión o refresco de navegador. |
+| **REQ-SYS-002** | App Router Next.js | Uso de la arquitectura App Router de Next.js 15. | Sistema | Alta | Rutas optimizadas y carga diferida (Lazy Loading) de módulos. |
 
-## ⚠️ 7. Riesgos y Mitigación
-- **Riesgo:** Pérdida de conectividad a internet en el local.
-  - *Mitigación:* Implementar persistencia local (WIP) o usar hotspot 4G.
-- **Riesgo:** Carga masiva de inventario manual tediosa.
-  - *Mitigación:* Próxima fase: Importación vía CSV/Excel.
+### 3.4. Requerimientos de Usuario (USR)
+| ID | Nombre | Descripción | Actores | Prioridad | Criterios de Aceptación |
+| :--- | :--- | :---: | :--- | :---: | :--- |
+| **REQ-USR-001** | Privacidad Financiera | Restricción de datos monetarios sensibles a no-admins. | Técnico, Recepcionista | Crítica | Gráficos de ingresos y deudas invisibles para roles operativos. |
+| **REQ-USR-002** | Panel Operativo | Interfaz simplificada para técnicos enfocada en taller. | Técnico | Media | Botones de creación/eliminación de productos ocultos para el técnico. |
+
+### 3.5. Requerimientos de Dominio (DOM)
+| ID | Nombre | Descripción | Actores | Prioridad | Criterios de Aceptación |
+| :--- | :--- | :--- | :--- | :---: | :--- |
+| **REQ-DOM-001** | Unicidad de SKU | El código de producto no puede repetirse en el inventario. | Sistema | Alta | Alerta de error si se intenta registrar un SKU ya existente en la DB. |
+| **REQ-DOM-002** | Integridad de Precios | Los precios deben ser positivos (≥ 0) y admitir dos decimales. | Sistema | Alta | Validación en el formulario de ingreso; soporte para moneda local. |
+
+---
+
+## 🛠️ 4. Requerimientos de Reparaciones (En Desarrollo)
+*(Estos requerimientos se detallarán con IDs REP-XXX en la siguiente fase operativa).*
+
+## ⚠️ 5. Riesgos y Mitigación
+... (resto del documento)
