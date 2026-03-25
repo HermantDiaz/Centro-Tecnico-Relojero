@@ -23,6 +23,12 @@ Este documento rastrea el cumplimiento de los requerimientos definidos en el [PR
 | **REQ-USR-002** | `inventario/page.tsx` (Conditional BTNs) | ✅ | Restricción de acciones de escritura a técnicos. |
 | **REQ-DOM-001** | `inventario/page.tsx` (Save Logic) | ✅ | Bloqueo de guardado si el SKU ya existe. |
 | **REQ-DOM-002** | `inventario/page.tsx` (Form Inputs) | ✅ | Validación de números positivos y decimales. |
+| **REQ-SEC-001** | `ARCHITECTURE.md` (WIP) / Supabase | 🏗️ | *En revision de politicas RLS.* |
+| **REQ-SEC-002** | Infraestructura (Vercel/Supabase) | ✅ | Forzado de SSL en todos los dominios. |
+| **REQ-SEC-003** | `AuthProvider.tsx` (JWT Config) | ✅ | Expiración de sesión gestionada por Supabase. |
+| **REQ-SEC-004** | `lib/supabase.ts` / Next.js | ✅ | Prevención nativa de Inyecciones y XSS. |
+| **REQ-REL-001** | Infraestructura (Supabase) | ✅ | Backups diarios automáticos habilitados. |
+| **REQ-REL-002** | Infraestructura (Supabase) | ✅ | SLA de disponibilidad del 99.9%. |
 
 ## 🔑 Leyenda de Estados
 - ✅ **Completado:** Implementado en código y verificado.

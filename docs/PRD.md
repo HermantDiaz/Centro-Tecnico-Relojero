@@ -53,6 +53,20 @@ Digitalizar y automatizar la gestión operativa de CTR Relojería, resolviendo l
 | **REQ-DOM-001** | Unicidad de SKU | El código de producto no puede repetirse en el inventario. | Sistema | Alta | Alerta de error si se intenta registrar un SKU ya existente en la DB. |
 | **REQ-DOM-002** | Integridad de Precios | Los precios deben ser positivos (≥ 0) y admitir dos decimales. | Sistema | Alta | Validación en el formulario de ingreso; soporte para moneda local. |
 
+### 3.6. Requerimientos de Seguridad (SEC)
+| ID | Nombre | Descripción | Actores | Prioridad | Criterios de Aceptación |
+| :--- | :--- | :--- | :--- | :---: | :--- |
+| **REQ-SEC-001** | Row Level Security (RLS) | Políticas en la DB para restringir acceso a nivel de fila según el `user_id` o `role`. | Sistema | Crítica | Ninguna consulta externa puede leer datos sin un JWT válido y permisos de rol asociados. |
+| **REQ-SEC-002** | Cifrado en Tránsito (SSL) | Garantía de que toda la comunicación entre cliente y servidor es vía HTTPS. | Sistema | Alta | Redirección automática de HTTP a HTTPS en todos los endpoints de la App y API. |
+| **REQ-SEC-003** | Gestión de Sesión | Expiración de tokens de acceso y renovación segura (JWT Refresh). | Sistema | Media | El usuario es redirigido al login tras un periodo de inactividad prolongado (config Supabase). |
+| **REQ-SEC-004** | Protección CSRF/XSS | Prevención de ataques mediante el uso de frames seguros y saneamiento de inputs. | Sistema | Alta | Uso de `cookies httpOnly` y políticas de seguridad de contenido (CSP) por defecto de Next.js. |
+
+### 3.7. Requerimientos de Fiabilidad y Mantenimiento (REL)
+| ID | Nombre | Descripción | Actores | Prioridad | Criterios de Aceptación |
+| :--- | :--- | :--- | :--- | :---: | :--- |
+| **REQ-REL-001** | Backup Automático | Copias de seguridad diarias de la base de datos PostgreSQL. | Sistema | Alta | Capacidad de restauración a un punto en el tiempo (PITR) de hasta 7 días. |
+| **REQ-REL-002** | Alta Disponibilidad | Garantía de tiempo en línea superior al 99.9%. | Sistema | Media | El sistema debe estar accesible sin interrupciones críticas durante el horario comercial. |
+
 ---
 
 ## 🛠️ 4. Requerimientos de Reparaciones (En Desarrollo)
