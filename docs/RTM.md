@@ -23,6 +23,12 @@ Este documento rastrea el cumplimiento de los requerimientos definidos en el [PR
 | **REQ-USR-002** | `inventario/page.tsx` (Conditional BTNs) | ✅ | Restricción de acciones de escritura a técnicos. |
 | **REQ-DOM-001** | `inventario/page.tsx` (Save Logic) | ✅ | Bloqueo de guardado si el SKU ya existe. |
 | **REQ-DOM-002** | `inventario/page.tsx` (Form Inputs) | ✅ | Validación de números positivos y decimales. |
+| **REQ-REP-001** | `reparaciones/page.tsx`, `clientes` table | 🏗️ | *En fase de diseño de DB.* |
+| **REQ-REP-002** | `reparaciones/page.tsx` | 🏗️ | *En fase de prototipado UI.* |
+| **REQ-REP-003** | `reparaciones/page.tsx` | 🏗️ | *En definición de workflow.* |
+| **REQ-REP-004** | `reparaciones/page.tsx` | 🏗️ | *Lógica de abonos pendiente.* |
+| **REQ-REP-005** | `reparaciones/page.tsx` (Print Lib) | 🏗️ | *Evaluando librerías de PDF.* |
+| **REQ-REP-006** | `reparaciones/page.tsx` (Filtros) | 🏗️ | *Basado en AuthProvider rol.* |
 | **REQ-SEC-001** | `ARCHITECTURE.md` (WIP) / Supabase | 🏗️ | *En revision de politicas RLS.* |
 | **REQ-SEC-002** | Infraestructura (Vercel/Supabase) | ✅ | Forzado de SSL en todos los dominios. |
 | **REQ-SEC-003** | `AuthProvider.tsx` (JWT Config) | ✅ | Expiración de sesión gestionada por Supabase. |

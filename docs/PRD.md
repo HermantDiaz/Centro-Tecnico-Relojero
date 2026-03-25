@@ -69,8 +69,23 @@ Digitalizar y automatizar la gestión operativa de CTR Relojería, resolviendo l
 
 ---
 
-## 🛠️ 4. Requerimientos de Reparaciones (En Desarrollo)
-*(Estos requerimientos se detallarán con IDs REP-XXX en la siguiente fase operativa).*
+## 🛠️ 4. Requerimientos de Reparaciones (REP)
+
+| ID | Nombre | Descripción | Actores | Prioridad | Criterios de Aceptación |
+| :--- | :--- | :--- | :--- | :---: | :--- |
+| **REQ-REP-001** | Registro de Clientes | Base de datos de clientes vinculada a las reparaciones. | Todos | Alta | Búsqueda por nombre/teléfono; validación de duplicados. |
+| **REQ-REP-002** | Ficha del Reloj | Registro de Marca, Modelo, Tipo y Serial (si aplica). | Todos | Crítica | Mantenimiento de la estructura histórica de Google Sheets. |
+| **REQ-REP-003** | Ciclo de Vida | Flujo de estados con fechas de compromiso, fin y entrega. | Todos | Crítica | Trazabilidad de tiempos de respuesta del taller. |
+| **REQ-REP-004** | Control de Abonos | Registro de anticipos y cálculo automático de saldo. | Recepción | Alta | El saldo se actualiza al registrar abonos; validación de total vs saldo. |
+| **REQ-REP-005** | Ticket de Servicio | Generación de comprobante basado en el "Número de Recibo". | Recepción | Alta | El número de recibo debe ser coincidente con el sistema actual. |
+| **REQ-REP-006** | Notas e Historial | Registro de notas internas y contador de veces en garantía. | Técnico | Media | Identificación de reparaciones recurrentes para control de calidad. |
+
+---
 
 ## ⚠️ 5. Riesgos y Mitigación
-... (resto del documento)
+- **Riesgo:** Pérdida de conectividad a internet en el local.
+  - *Mitigación:* Implementar persistencia local (WIP) o usar hotspot 4G.
+- **Riesgo:** Reclamos de clientes por daños previos no registrados.
+  - *Mitigación:* Obligatoriedad de REQ-REP-002 (Estado Físico) al recibir el reloj.
+- **Riesgo:** Errores en cálculos financieros de abonos.
+  - *Mitigación:* Validación estricta en base de datos (Saldo = Total - Abonos).
