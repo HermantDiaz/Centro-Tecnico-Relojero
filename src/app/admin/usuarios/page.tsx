@@ -14,7 +14,7 @@ interface Perfil {
 }
 
 export default function GestionUsuarios() {
-  const { rol: currentUserRol, user: currentUser } = useAuth();
+  const { rol: currentUserRol, user: currentUser, sessionReady } = useAuth();
   const [usuarios, setUsuarios] = useState<Perfil[]>([]);
   const [loading, setLoading] = useState(true);
   const [editingUser, setEditingUser] = useState<Perfil | null>(null);
@@ -33,10 +33,10 @@ export default function GestionUsuarios() {
       setLoading(false);
     }
 
-    if (currentUserRol === "admin") {
+    if (currentUserRol === "admin" && sessionReady) {
       fetchUsuarios();
     }
-  }, [currentUserRol]);
+  }, [currentUserRol, sessionReady]);
 
   const handleUpdateUser = async (e: React.FormEvent) => {
     e.preventDefault();

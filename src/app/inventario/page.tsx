@@ -59,13 +59,14 @@ export default function Inventario() {
     alerta_activa: true
   });
 
-  const { user, rol, loading: authLoading } = useAuth();
+  const { user, rol, sessionReady } = useAuth();
 
   useEffect(() => {
-    if (!authLoading && user) {
+    // Solo cargamos cuando el usuario est presente Y la sesin est totalmente protegida
+    if (user && sessionReady) {
       fetchData();
     }
-  }, [filtroCategoria, authLoading, user]);
+  }, [filtroCategoria, user, sessionReady]);
 
   async function fetchData() {
     setLoading(true);

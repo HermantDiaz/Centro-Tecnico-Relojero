@@ -1,7 +1,8 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { supabase } from "@/lib/supabase";
+import { useAuth } from "@/components/AuthProvider";
 import {
   Plus, Upload, Search, Filter, Clock, CheckCircle2, AlertCircle, Wrench,
   User, Phone, Calendar, DollarSign, ArrowRight, MoreVertical, X, Loader2, AlertTriangle, Printer, Edit2, ChevronRight, Save, Trash2, CheckSquare
@@ -34,11 +35,43 @@ interface Reparacion {
     nombre: string;
   };
   created_at?: string;
+  historial?: Historico[];
+  insumos?: InsumoReparacion[];
+}
+
+interface Historico {
+  id: string;
+  reparacion_id: string;
+  usuario_id: string | null;
+  estado_anterior: string | null;
+  estado_nuevo: string | null;
+  evento: string;
+  notas: string | null;
+  created_at: string;
+  perfil?: { nombre: string };
+}
+
+interface InsumoReparacion {
+  id: string;
+  reparacion_id: string;
+  insumo_id: string;
+  cantidad: number;
+  precio_unitario: number;
+  inventario?: { 
+    nombre: string;
+    codigo: string;
+  };
 }
 
 export default function ReparacionesPage() {
+  const { user, sessionReady } = useAuth();
   const [reparaciones, setReparaciones] = useState<Reparacion[]>([]);
   const [perfiles, setPerfiles] = useState<any[]>([]);
+  const [allClientes, setAllClientes] = useState<any[]>([]);
+  const [workloadStats, setWorkloadStats] = useState<any[]>([]);
+  const [selectedReparacionHistorial, setSelectedReparacionHistorial] = useState<Historico[]>([]);
+  const [inventarioItems, setInventarioItems] = useState<any[]>([]);
+  const [showCustomerSuggestions, setShowCustomerSuggestions] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState("");
   const [filterStatus, setFilterStatus] = useState("todos");
@@ -78,16 +111,21 @@ export default function ReparacionesPage() {
   });
 
   useEffect(() => {
-    fetchInitialData();
-  }, []);
+    // Solo cargamos cuando el usuario est presente Y la sesin de Supabase est totalmente lista
+    if (user && sessionReady) {
+      fetchInitialData();
+    }
+  }, [user, sessionReady]);
 
   async function fetchInitialData() {
     setIsLoading(true);
     try {
+      const { data: { session } } = await supabase.auth.getSession();
       const { data, error } = await supabase
         .from('reparaciones')
-        .select(`*, clientes (*), tecnico:tecnico_asignado_id(nombre)`)
-        .order('created_at', { ascending: false });
+        .select(`*, clientes:cliente_id(nombre_completo, telefono), tecnico:tecnico_asignado_id(nombre)`)
+        .order('numero_recibo', { ascending: false });
+
       if (error) throw error;
       setReparaciones(data || []);
 
@@ -96,10 +134,89 @@ export default function ReparacionesPage() {
         .select('id, nombre, rol')
         .or('rol.eq.tecnico,rol.eq.admin');
       setPerfiles(pData || []);
-    } catch (e: any) {
+
+      const { data: cData } = await supabase
+        .from('clientes')
+        .select('id, nombre_completo, telefono')
+        .order('nombre_completo', { ascending: true });
+      setAllClientes(cData || []);
+
+      const { data: iData } = await supabase
+        .from('inventario')
+        .select('*')
+        .gt('stock_actual', 0);
+      setInventarioItems(iData || []);
+
+      await fetchWorkload();
+
+      // Handle query param for pre-filling
+      const urlParams = new URLSearchParams(window.location.search);
+      const clienteNome = urlParams.get('cliente');
+      if (clienteNome) {
+        const existing = (cData || []).find((c: any) => c.nombre_completo === clienteNome);
+        setForm(prev => ({ 
+          ...prev, 
+          nombre_cliente: clienteNome,
+          telefono_cliente: existing?.telefono || "" 
+        }));
+        setShowAddModal(true);
+      }
+     } catch (e: any) {
       console.error("Fetch error:", e.message);
     } finally {
       setIsLoading(false);
+    }
+  }
+
+  async function fetchWorkload() {
+    try {
+      const { data } = await supabase
+        .from('reparaciones')
+        .select('tecnico_asignado_id, tecnico:tecnico_asignado_id(nombre)')
+        .not('estado', 'in', '("entregado", "no repara")')
+        .not('tecnico_asignado_id', 'is', null);
+
+      if (data) {
+        const counts: any = {};
+        data.forEach((r: any) => {
+          const name = r.tecnico?.nombre || "Sin Asignar";
+          counts[name] = (counts[name] || 0) + 1;
+        });
+        setWorkloadStats(Object.entries(counts).map(([name, count]) => ({ name, count })));
+      }
+    } catch (e) {
+      console.error("Error Workload:", e);
+    }
+  }
+
+  async function fetchHistory(reparacionId: string) {
+    try {
+      const { data } = await supabase
+        .from('historial_reparaciones')
+        .select(`*, perfil:usuario_id(nombre)`)
+        .eq('reparacion_id', reparacionId)
+        .order('created_at', { ascending: false });
+      setSelectedReparacionHistorial(data || []);
+    } catch (e) {
+      console.error("Error History:", e);
+    }
+  }
+
+  async function createHistoryEntry(reparacionId: string, event: string, oldStatus: string | null = null, newStatus: string | null = null, notes: string | null = null) {
+    try {
+      // Get current user ID (optional, depends on Auth)
+      const { data: { user } } = await supabase.auth.getUser();
+      
+      await supabase.from('historial_reparaciones').insert({
+        reparacion_id: reparacionId,
+        usuario_id: user?.id || null,
+        evento: event,
+        estado_anterior: oldStatus,
+        estado_nuevo: newStatus,
+        notas: notes
+      });
+    } catch (e) {
+      console.error("Error creating history:", e);
     }
   }
 
@@ -240,12 +357,17 @@ export default function ReparacionesPage() {
       if (isEditing && selectedReparacion) {
         const { error } = await supabase.from('reparaciones').update(baseRepair).eq('id', selectedReparacion.id);
         if (error) throw error;
+        await createHistoryEntry(selectedReparacion.id, "Actualización de Registro", selectedReparacion.estado, form.estado, "Edición manual de campos.");
       } else {
-        const { error } = await supabase.from('reparaciones').insert(baseRepair);
+        const { data, error } = await supabase.from('reparaciones').insert(baseRepair).select('id');
         if (error) throw error;
+        if (data?.[0]) {
+          await createHistoryEntry(data[0].id, "Registro Inicial", null, form.estado, "Ingreso inicial del reloj al taller.");
+        }
       }
 
       fetchInitialData();
+      fetchWorkload();
       setSelectedReparacion(null);
       setIsEditing(false);
       setShowAddModal(false);
@@ -259,11 +381,17 @@ export default function ReparacionesPage() {
 
   const handleUpdateStatus = async (id: string, newStatus: string) => {
     try {
+      const oldStatus = reparaciones.find(r => r.id === id)?.estado || null;
       const { error } = await supabase.from('reparaciones').update({ estado: newStatus }).eq('id', id);
       if (error) throw error;
+      
+      await createHistoryEntry(id, "Cambio de Estado", oldStatus, newStatus);
+      
       fetchInitialData();
+      fetchWorkload();
       if (selectedReparacion?.id === id) {
         setSelectedReparacion({ ...selectedReparacion, estado: newStatus });
+        fetchHistory(id);
       }
     } catch (err: any) { alert(err.message); }
   };
@@ -436,8 +564,8 @@ export default function ReparacionesPage() {
             <Wrench className="w-6 h-6" />
           </div>
           <div>
-            <h1 className="text-3xl font-black text-neutral-900 dark:text-white uppercase italic tracking-tighter">Gestión de Taller</h1>
-            <p className="text-xs font-bold text-neutral-400 uppercase tracking-widest">Relojería Profesional</p>
+            <h1 className="text-3xl font-black text-neutral-900 dark:text-white uppercase italic tracking-tighter">Gestion de Taller</h1>
+            <p className="text-xs font-bold text-neutral-400 uppercase tracking-widest">Relojeria Profesional</p>
           </div>
         </div>
         <div className="flex gap-3">
@@ -449,27 +577,30 @@ export default function ReparacionesPage() {
           </button>
         </div>
       </div>
-
-      {/* Stats Dashboard */}
-      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
-        {[
-          { label: "En Proceso", value: reparaciones.filter(r => !['entregado', 'no repara'].includes(r.estado)).length, icon: Clock, color: "text-amber-500", bg: "bg-amber-500/10" },
-          { label: "Para Entrega", value: reparaciones.filter(r => r.estado === 'listo').length, icon: CheckCircle2, color: "text-blue-500", bg: "bg-blue-500/10" },
-          { label: "Saldo Total", value: `$${reparaciones.reduce((acc, r) => acc + (r.estado !== 'entregado' ? r.saldo_pendiente : 0), 0)}`, icon: DollarSign, color: "text-green-500", bg: "bg-green-500/10" },
-          { label: "Garantías", value: reparaciones.filter(r => r.estado === 'garantia').length, icon: AlertCircle, color: "text-red-500", bg: "bg-red-500/10" },
-          { label: "Vencidas", value: overdueRepairs.length, icon: AlertTriangle, color: "text-red-600", bg: "bg-red-600/10" },
-          { label: "Próximas", value: upcomingRepairs.length, icon: Calendar, color: "text-purple-500", bg: "bg-purple-500/10" },
-        ].map((stat, i) => (
-          <div key={i} className="bg-white dark:bg-neutral-900 p-5 rounded-[2rem] border border-neutral-100 dark:border-neutral-800 shadow-sm flex flex-col gap-2">
-            <div className={`w-8 h-8 rounded-lg ${stat.bg} ${stat.color} flex items-center justify-center`}><stat.icon className="w-4 h-4" /></div>
-            <div>
-              <p className="text-[8px] font-black text-neutral-400 uppercase tracking-widest">{stat.label}</p>
-              <p className="text-lg font-black text-neutral-900 dark:text-white">{stat.value}</p>
-            </div>
+ 
+      {/* Technician Workload Dashboard */}
+      {workloadStats.length > 0 && (
+        <div className="bg-white dark:bg-neutral-900 p-8 rounded-[2.5rem] border border-neutral-100 dark:border-neutral-800 shadow-sm overflow-hidden">
+          <div className="flex items-center gap-2 mb-6">
+            <User className="w-4 h-4 text-amber-500" />
+            <h3 className="text-[10px] font-black uppercase tracking-[0.2em] text-neutral-400">Balance de Carga de Técnicos</h3>
           </div>
-        ))}
-      </div>
-
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+            {workloadStats.map((tech, i) => (
+              <div key={i} className="flex items-center gap-4 bg-neutral-50 dark:bg-neutral-800/50 p-4 rounded-2xl border border-neutral-100 dark:border-neutral-700/50">
+                <div className="w-10 h-10 rounded-full bg-black dark:bg-white text-white dark:text-black flex items-center justify-center font-black text-xs shadow-md">
+                  {tech.name.charAt(0)}
+                </div>
+                <div>
+                  <p className="text-xs font-black text-neutral-900 dark:text-white uppercase tracking-tight">{tech.name}</p>
+                  <p className="text-[10px] font-bold text-neutral-400 uppercase tracking-widest">{tech.count} Trabajos activos</p>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+ 
       {/* Sleek Toolbar */}
       <div className="flex flex-wrap items-center gap-4">
         {/* Unified Search */}
@@ -494,10 +625,10 @@ export default function ReparacionesPage() {
               className="w-full pl-12 pr-10 py-4 rounded-2xl bg-white dark:bg-neutral-900 border border-neutral-100 dark:border-neutral-800 text-xs font-black uppercase tracking-widest appearance-none outline-none focus:ring-4 focus:ring-black/5 dark:focus:ring-white/5 transition-all shadow-sm cursor-pointer"
             >
               <option value="todos">Todos los Estados</option>
-              <option value="en diagnostico">En Diagnóstico</option>
-              <option value="en reparacion">En Reparación</option>
+              <option value="en diagnostico">En Diagnostico</option>
+              <option value="en reparacion">En Reparacion</option>
               <option value="listo">Listo para Entrega</option>
-              <option value="garantia">Garantía</option>
+              <option value="garantia">Garantia</option>
               <option value="no repara">No Repara</option>
               <option value="entregado">Entregado</option>
             </select>
@@ -680,7 +811,7 @@ export default function ReparacionesPage() {
                 <tr><td colSpan={5} className="p-32 text-center text-neutral-400 font-bold italic">No se encontraron resultados.</td></tr>
               ) : (
                 sortedReparaciones.slice(0, 50).map((rep) => (
-                  <tr key={rep.id} onClick={() => setSelectedReparacion(rep)} className="group hover:bg-neutral-50 dark:hover:bg-neutral-800/30 transition-all cursor-pointer">
+                  <tr key={rep.id} onClick={() => { setSelectedReparacion(rep); fetchHistory(rep.id); }} className="group hover:bg-neutral-50 dark:hover:bg-neutral-800/30 transition-all cursor-pointer">
                     <td className="px-8 py-6">
                       <div className="flex items-center gap-4">
                         <input
@@ -741,9 +872,42 @@ export default function ReparacionesPage() {
             <h2 className="text-3xl font-black italic uppercase tracking-tighter mb-8">{isEditing ? "Editar Reparación" : "Ingreso de Servicio"}</h2>
 
             <form onSubmit={handleSaveRepair} className="grid grid-cols-1 md:grid-cols-3 gap-8">
-              <div className="space-y-4">
+              <div className="space-y-4 relative">
                 <p className="text-[10px] font-black text-neutral-300 uppercase tracking-widest border-b pb-2">Cliente</p>
-                <input required className="w-full px-5 py-4 rounded-xl bg-neutral-50 dark:bg-neutral-800 text-sm font-bold" placeholder="Nombre" value={form.nombre_cliente} onChange={e => setForm({ ...form, nombre_cliente: e.target.value })} />
+                <div className="relative">
+                  <input 
+                    required 
+                    className="w-full px-5 py-4 rounded-xl bg-neutral-50 dark:bg-neutral-800 text-sm font-bold" 
+                    placeholder="Nombre" 
+                    value={form.nombre_cliente} 
+                    onChange={e => {
+                      const val = e.target.value;
+                      setForm({ ...form, nombre_cliente: val });
+                      setShowCustomerSuggestions(val.length > 0);
+                    }}
+                    onFocus={() => form.nombre_cliente.length > 0 && setShowCustomerSuggestions(true)}
+                  />
+                  {showCustomerSuggestions && allClientes.filter(c => c.nombre_completo.toLowerCase().includes(form.nombre_cliente.toLowerCase())).length > 0 && (
+                    <div className="absolute z-50 w-full mt-2 bg-white dark:bg-neutral-800 border border-neutral-100 dark:border-neutral-700 rounded-2xl shadow-2xl max-h-48 overflow-y-auto">
+                      {allClientes
+                        .filter(c => c.nombre_completo.toLowerCase().includes(form.nombre_cliente.toLowerCase()))
+                        .map(c => (
+                          <div 
+                            key={c.id} 
+                            className="p-4 hover:bg-neutral-50 dark:hover:bg-neutral-700 cursor-pointer border-b last:border-none border-neutral-50 dark:border-neutral-700"
+                            onClick={() => {
+                              setForm({ ...form, nombre_cliente: c.nombre_completo, telefono_cliente: c.telefono });
+                              setShowCustomerSuggestions(false);
+                            }}
+                          >
+                            <p className="text-xs font-black uppercase tracking-tight">{c.nombre_completo}</p>
+                            <p className="text-[9px] text-neutral-400 font-bold">{c.telefono}</p>
+                          </div>
+                        ))
+                      }
+                    </div>
+                  )}
+                </div>
                 <input className="w-full px-5 py-4 rounded-xl bg-neutral-50 dark:bg-neutral-800 text-sm font-bold" placeholder="Teléfono" value={form.telefono_cliente} onChange={e => setForm({ ...form, telefono_cliente: e.target.value })} />
               </div>
 
@@ -841,20 +1005,101 @@ export default function ReparacionesPage() {
                       {selectedReparacion!.tecnico?.nombre || 'Pendiente de asignar'}
                     </p>
                   </div>
+ 
+                  <div>
+                    <p className="text-[10px] font-black uppercase tracking-widest border-b pb-2 mb-4">Repuestos e Insumos</p>
+                    <div className="space-y-4">
+                      {/* Search / Add Piece */}
+                      <div className="relative group">
+                        <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-3 h-3 text-neutral-400" />
+                        <select 
+                          className="w-full pl-10 pr-4 py-3 rounded-xl bg-neutral-50 dark:bg-neutral-800 text-[10px] font-bold uppercase appearance-none cursor-pointer border border-neutral-100 dark:border-neutral-700"
+                          onChange={async (e) => {
+                            const val = e.target.value;
+                            if (!val) return;
+                            const item = inventarioItems.find(i => i.id === val);
+                            if (item) {
+                              const qty = prompt(`Cantidad de ${item.nombre} a utilizar:`, "1");
+                              if (qty && parseInt(qty) > 0) {
+                                try {
+                                  // 1. Insert Insumo
+                                  await supabase.from('insumos_reparacion').insert({
+                                    reparacion_id: selectedReparacion!.id,
+                                    insumo_id: item.id,
+                                    cantidad: parseInt(qty),
+                                    precio_unitario: item.precio_venta
+                                  });
+                                  // 2. Log History
+                                  await createHistoryEntry(selectedReparacion!.id, "Insumo Agregado", null, null, `Se agregó ${qty}x ${item.nombre} (SKU: ${item.codigo || 'N/A'}).`);
+                                  // 3. Decrement Inventory
+                                  await supabase.from('inventario').update({ 
+                                    stock_actual: item.stock_actual - parseInt(qty) 
+                                  }).eq('id', item.id);
+                                  
+                                  fetchHistory(selectedReparacion!.id);
+                                  alert("¡Repuesto agregado y stock actualizado!");
+                                } catch (err: any) { alert(err.message); }
+                              }
+                            }
+                            e.target.value = ""; // Reset
+                          }}
+                        >
+                          <option value="">+ Agregar repuesto del inventario...</option>
+                          {inventarioItems.map(item => (
+                            <option key={item.id} value={item.id}>
+                              {item.nombre} ({item.marca}) - Stock: {item.stock_actual} - ${item.precio_venta}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+ 
+                      {/* List of current insumos - Simplified to fetch on the fly if needed or just show in history */}
+                      <p className="text-[9px] text-neutral-400 italic">Los repuestos agregados se reflejan en el historial superior.</p>
+                    </div>
+                  </div>
+ 
                   <div>
                     <p className="text-[9px] font-black text-neutral-400 uppercase">Diagnóstico Técnico</p>
                     <p className="text-sm font-bold text-neutral-700 dark:text-neutral-300 bg-amber-50 dark:bg-amber-900/10 p-4 rounded-2xl mt-1">{selectedReparacion!.diagnostico_tecnico || 'Sin diagnóstico registrado'}</p>
                   </div>
                 </div>
 
-                <p className="text-[10px] font-black uppercase tracking-widest border-b pb-2">Historial y Fechas</p>
-                <div className="space-y-2">
-                  <div className="flex justify-between text-xs font-bold">
-                    <span className="text-neutral-400 uppercase">Ingreso:</span>
+                <p className="text-[10px] font-black uppercase tracking-widest border-b pb-2">Historial y Línea de Tiempo</p>
+                <div className="space-y-6 pt-2">
+                  {selectedReparacionHistorial.length === 0 ? (
+                    <p className="text-[10px] text-neutral-400 italic">No hay registros históricos para esta reparación.</p>
+                  ) : (
+                    <div className="relative pl-6 space-y-6 before:absolute before:left-2 before:top-2 before:bottom-2 before:w-[2px] before:bg-neutral-100 dark:before:bg-neutral-800">
+                      {selectedReparacionHistorial.map((event, idx) => (
+                        <div key={event.id} className="relative">
+                          <div className={`absolute -left-[22px] top-1 w-3 h-3 rounded-full border-2 border-white dark:border-neutral-900 ${idx === 0 ? 'bg-amber-500 animate-pulse' : 'bg-neutral-300'}`} />
+                          <div className="flex justify-between items-start mb-1">
+                            <h4 className="text-[10px] font-black uppercase tracking-widest text-neutral-900 dark:text-white">{event.evento}</h4>
+                            <span className="text-[9px] font-bold text-neutral-400">{new Date(event.created_at).toLocaleString()}</span>
+                          </div>
+                          <p className="text-[10px] text-neutral-500 font-medium leading-relaxed">
+                            {event.notas || (event.estado_nuevo ? `Estado cambiado de ${event.estado_anterior || '?' } a ${event.estado_nuevo}.` : '')}
+                          </p>
+                          {event.perfil && (
+                            <div className="mt-2 flex items-center gap-1.5 opacity-60">
+                              <User className="w-2.5 h-2.5" />
+                              <span className="text-[9px] font-bold uppercase">{event.perfil.nombre}</span>
+                            </div>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+
+                <p className="text-[10px] font-black uppercase tracking-widest border-b pb-2">Fechas Clave</p>
+                <div className="space-y-2 pt-2 text-left">
+                  <div className="flex justify-between text-[11px] font-bold">
+                    <span className="text-neutral-400 uppercase tracking-tighter">FECHA INGRESO:</span>
                     <span className="text-neutral-900 dark:text-white">{new Date(selectedReparacion!.fecha_ingreso).toLocaleDateString()}</span>
                   </div>
-                  <div className="flex justify-between text-xs font-bold">
-                    <span className="text-neutral-400 uppercase">Compromiso:</span>
+                  <div className="flex justify-between text-[11px] font-bold">
+                    <span className="text-neutral-400 uppercase tracking-tighter">FECHA COMPROMISO:</span>
                     <span className={overdueRepairs.some(o => o.id === selectedReparacion!.id) ? 'text-red-500' : 'text-neutral-900 dark:text-white'}>
                       {selectedReparacion!.fecha_compromiso ? new Date(selectedReparacion!.fecha_compromiso).toLocaleDateString() : 'No establecida'}
                     </span>

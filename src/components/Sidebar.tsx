@@ -9,6 +9,7 @@ const NAV_ITEMS = [
   { label: "Dashboard", icon: "📊", path: "/", roles: ["admin", "recepcion", "tecnico"] },
   { label: "Inventario", icon: "📦", path: "/inventario", roles: ["admin", "recepcion", "tecnico"] },
   { label: "Reparaciones", icon: "🛠️", path: "/reparaciones", roles: ["admin", "recepcion", "tecnico"] },
+  { label: "Clientes", icon: "👥", path: "/clientes", roles: ["admin", "recepcion", "tecnico"] },
   { label: "Caja / Finanzas", icon: "💰", path: "/finanzas", roles: ["admin"] },
   { label: "Deudas", icon: "🤝", path: "/deudas", roles: ["admin"] },
 ];
@@ -19,19 +20,22 @@ const ADMIN_ITEMS = [
 
 export default function Sidebar() {
   const pathname = usePathname();
-  const { signOut, user, rol } = useAuth();
+  const { signOut, user, rol, loading } = useAuth();
 
   const getRoleLabel = (r: typeof rol) => {
     switch(r) {
       case 'admin': return 'Administrador';
       case 'recepcion': return 'Recepción';
       case 'tecnico': return 'Técnico Especialista';
-      default: return 'Usuario';
+      default: return user ? 'Sincronizando...' : 'Usuario';
     }
   };
 
+  // Rol efectivo para filtrado de menú
+  const effectiveRol = rol || (user && !loading ? 'tecnico' : null);
+
   return (
-    <aside className="w-64 bg-white dark:bg-black border-r border-neutral-100 dark:border-neutral-900 flex flex-col h-screen transition-all select-none">
+    <aside className="w-64 bg-white dark:bg-black border-r border-neutral-100 dark:border-neutral-900 flex flex-col h-screen transition-all select-none text-left">
       {/* Branding Section */}
       <div className="p-8 pb-10 flex flex-col items-center">
         <div className="relative group mb-4">
@@ -42,7 +46,7 @@ export default function Sidebar() {
         </div>
         <div className="text-center">
           <h2 className="text-sm font-black tracking-[0.2em] text-neutral-900 dark:text-white uppercase italic">
-            Relojería IA
+            RelojerIa IA
           </h2>
           <p className="text-[10px] text-neutral-400 font-bold uppercase tracking-widest mt-1">Software System</p>
         </div>
@@ -50,31 +54,14 @@ export default function Sidebar() {
 
       {/* Navigation Links */}
       <nav className="flex-1 px-4 space-y-2 overflow-y-auto custom-scrollbar">
-        {NAV_ITEMS.filter(item => (item.roles as string[]).includes(rol as string)).map((item) => {
-          const isActive = pathname === item.path;
-          return (
-            <Link 
-              key={item.path} 
-              href={item.path}
-              className={`flex items-center gap-3 px-4 py-3.5 rounded-2xl text-sm font-bold transition-all duration-300 group ${
-                isActive 
-                ? "bg-black text-white dark:bg-white dark:text-black shadow-lg shadow-black/10 dark:shadow-white/5 scale-[1.02]" 
-                : "text-neutral-500 hover:bg-neutral-50 dark:hover:bg-neutral-900 hover:text-black dark:hover:text-white"
-              }`}
-            >
-              <span className={`text-lg transition-transform duration-300 group-hover:scale-110 ${isActive ? "" : "grayscale group-hover:grayscale-0"}`}>
-                {item.icon}
-              </span>
-              <span className="tracking-tight">{item.label}</span>
-            </Link>
-          );
-        })}
-
-        {/* Admin Section Separator */}
-        {rol === 'admin' && (
-          <div className="pt-6 pb-2">
-            <p className="px-5 text-[9px] font-black uppercase tracking-[0.3em] text-neutral-400 mb-2">Administración</p>
-            {ADMIN_ITEMS.map((item) => {
+        {loading && !rol && user ? (
+          <div className="py-10 flex flex-col items-center justify-center opacity-50">
+             <div className="w-5 h-5 border-2 border-neutral-200 border-t-neutral-800 animate-spin rounded-full mb-2"></div>
+             <p className="text-[10px] font-black uppercase tracking-widest text-neutral-400 animate-pulse">Sincronizando...</p>
+          </div>
+        ) : (
+          <>
+            {NAV_ITEMS.filter(item => !effectiveRol || (item.roles as string[]).includes(effectiveRol)).map((item) => {
               const isActive = pathname === item.path;
               return (
                 <Link 
@@ -82,7 +69,7 @@ export default function Sidebar() {
                   href={item.path}
                   className={`flex items-center gap-3 px-4 py-3.5 rounded-2xl text-sm font-bold transition-all duration-300 group ${
                     isActive 
-                    ? "bg-amber-600 text-white shadow-lg shadow-amber-600/20 scale-[1.02]" 
+                    ? "bg-black text-white dark:bg-white dark:text-black shadow-lg shadow-black/10 dark:shadow-white/5 scale-[1.02]" 
                     : "text-neutral-500 hover:bg-neutral-50 dark:hover:bg-neutral-900 hover:text-black dark:hover:text-white"
                   }`}
                 >
@@ -93,7 +80,33 @@ export default function Sidebar() {
                 </Link>
               );
             })}
-          </div>
+
+            {/* Admin Section Separator */}
+            {effectiveRol === 'admin' && (
+              <div className="pt-6 pb-2">
+                <p className="px-5 text-[9px] font-black uppercase tracking-[0.3em] text-neutral-400 mb-2">Administración</p>
+                {ADMIN_ITEMS.map((item) => {
+                  const isActive = pathname === item.path;
+                  return (
+                    <Link 
+                      key={item.path} 
+                      href={item.path}
+                      className={`flex items-center gap-3 px-4 py-3.5 rounded-2xl text-sm font-bold transition-all duration-300 group ${
+                        isActive 
+                        ? "bg-amber-600 text-white shadow-lg shadow-amber-600/20 scale-[1.02]" 
+                        : "text-neutral-500 hover:bg-neutral-50 dark:hover:bg-neutral-900 hover:text-black dark:hover:text-white"
+                      }`}
+                    >
+                      <span className={`text-lg transition-transform duration-300 group-hover:scale-110 ${isActive ? "" : "grayscale group-hover:grayscale-0"}`}>
+                        {item.icon}
+                      </span>
+                      <span className="tracking-tight">{item.label}</span>
+                    </Link>
+                  );
+                })}
+              </div>
+            )}
+          </>
         )}
       </nav>
 
