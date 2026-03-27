@@ -2,9 +2,9 @@
 
 import { useState, useEffect } from "react";
 import { supabase } from "@/lib/supabase";
-import { 
+import {
   Plus, Upload, Search, Filter, Clock, CheckCircle2, AlertCircle, Wrench,
-  User, Phone, Calendar, DollarSign, ArrowRight, MoreVertical, X, Loader2, AlertTriangle, Printer, Edit2, ChevronRight, Save, Trash2
+  User, Phone, Calendar, DollarSign, ArrowRight, MoreVertical, X, Loader2, AlertTriangle, Printer, Edit2, ChevronRight, Save, Trash2, CheckSquare
 } from "lucide-react";
 import Papa from "papaparse";
 
@@ -30,6 +30,10 @@ interface Reparacion {
     nombre_completo: string;
     telefono: string;
   };
+  tecnico?: {
+    nombre: string;
+  };
+  created_at?: string;
 }
 
 export default function ReparacionesPage() {
@@ -40,7 +44,14 @@ export default function ReparacionesPage() {
   const [filterStatus, setFilterStatus] = useState("todos");
   const [filterOverdueOnly, setFilterOverdueOnly] = useState(false);
   const [filterDate, setFilterDate] = useState("");
-  
+  const [filterMonth, setFilterMonth] = useState("todos");
+  const [filterYear, setFilterYear] = useState("todos");
+  const [sortOrder, setSortOrder] = useState<"asc" | "desc">("desc");
+  const [showTimeFilters, setShowTimeFilters] = useState(false);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [isDeletingId, setIsDeletingId] = useState<string | null>(null);
+  const [isDeletingBulk, setIsDeletingBulk] = useState(false);
+
   const [showImportModal, setShowImportModal] = useState(false);
   const [showAddModal, setShowAddModal] = useState(false);
   const [selectedReparacion, setSelectedReparacion] = useState<Reparacion | null>(null);
@@ -59,7 +70,8 @@ export default function ReparacionesPage() {
     diagnostico: "",
     precio_final: "0",
     abono: "0",
-    estado: "recibido",
+    estado: "en diagnostico",
+    tecnico_id: "",
     fecha_ingreso: new Date().toISOString().split('T')[0],
     fecha_compromiso: "",
     veces_garantia: 0
@@ -74,12 +86,15 @@ export default function ReparacionesPage() {
     try {
       const { data, error } = await supabase
         .from('reparaciones')
-        .select(`*, clientes (*)` )
+        .select(`*, clientes (*), tecnico:tecnico_asignado_id(nombre)`)
         .order('created_at', { ascending: false });
       if (error) throw error;
       setReparaciones(data || []);
 
-      const { data: pData } = await supabase.from('perfiles').select('id, nombre');
+      const { data: pData } = await supabase
+        .from('perfiles')
+        .select('id, nombre, rol')
+        .or('rol.eq.tecnico,rol.eq.admin');
       setPerfiles(pData || []);
     } catch (e: any) {
       console.error("Fetch error:", e.message);
@@ -97,51 +112,96 @@ export default function ReparacionesPage() {
     Papa.parse(file, {
       header: true,
       skipEmptyLines: true,
-      complete: async (results) => {
+      complete: async (results: Papa.ParseResult<any>) => {
         const rows = results.data as any[];
+        console.log("CSV parsed rows:", rows.length, rows);
         let success = 0; let errors = 0;
 
         for (let i = 0; i < rows.length; i++) {
           try {
             const row = rows[i];
+            const normalizeHeader = (str: any) => 
+               String(str || "").normalize('NFD').replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/[\s\/]/g, '').trim();
+
+            const normalizeValue = (str: any) => 
+               String(str || "").normalize('NFD').replace(/[\u0300-\u036f]/g, "").toLowerCase().trim();
+
             const getVal = (opts: string[]) => {
-              for(const o of opts) {
-                const found = Object.keys(row).find(k => k.toLowerCase().trim() === o.toLowerCase().trim());
+              const normalizedOpts = opts.map(o => normalizeHeader(o));
+              for (const o of normalizedOpts) {
+                const found = Object.keys(row).find(k => normalizeHeader(k) === o);
                 if (found) return row[found];
               }
               return "";
             };
 
             const nombre = getVal(['Nombre de Cliente', 'Nombre', 'Cliente', 'Nombre Cliente']);
-            const recibo = getVal(['Numero de recibo', 'Recibo', 'Ticket', 'N° Recibo', 'N° de recibo', 'id']);
-            if (!nombre || !recibo) { errors++; continue; }
-
-            const { data: cData, error: cErr } = await supabase.from('clientes').upsert({ 
-              nombre_completo: String(nombre).trim(), 
-              telefono: String(getVal(['telefono', 'Teléfono', 'Celular']) || "").trim() 
-            }, { onConflict: 'nombre_completo' }).select('id');
+            const recibo = getVal(['Numero de recibo', 'Recibo', 'Ticket', 'N° Recibo', 'N° de recibo', 'id', 'N°', 'Nro', 'Recibo N°']);
+            console.log(`Row ${i} mapping: nombre=${nombre}, recibo=${recibo}`);
             
+            if (!nombre || !recibo) { 
+              console.warn(`Row ${i} skipped: missing required fields`);
+              errors++; continue; 
+            }
+
+            const { data: cData, error: cErr } = await supabase.from('clientes').upsert({
+              nombre_completo: String(nombre).trim(),
+              telefono: String(getVal(['telefono', 'Teléfono', 'Celular']) || "").trim()
+            }, { onConflict: 'nombre_completo' }).select('id');
+
             if (cErr) throw cErr;
+
+            const parseCSVDate = (val: string) => {
+              if (!val || val.trim() === "") return undefined;
+              try {
+                // Remove multiples slashes, spaces, etc
+                const cleanVal = val.replace(/[\s\/]+/g, '/').trim();
+                if (cleanVal.includes('/')) {
+                  const parts = cleanVal.split('/');
+                  const [d, m, y] = parts;
+                  if (d && m && y) {
+                    const year = y.length === 2 ? `20${y}` : y;
+                    const date = new Date(`${year}-${m.padStart(2, '0')}-${d.padStart(2, '0')}`);
+                    if (!isNaN(date.getTime())) return date.toISOString();
+                  }
+                }
+                const d = new Date(val);
+                if (!isNaN(d.getTime())) return d.toISOString();
+                return undefined;
+              } catch (e) {
+                return undefined;
+              }
+            };
 
             const { error: rErr } = await supabase.from('reparaciones').insert({
               numero_recibo: String(recibo).trim(),
               cliente_id: cData?.[0]?.id,
-              marca: getVal(['Marca']),
-              modelo_descripcion: getVal(['Modelo/descripcion breve', 'Modelo']),
-              estado: (getVal(['Estado']) || 'recibido').toLowerCase(),
-              precio_final: parseFloat(String(getVal(['precio final', 'Precio'])).replace(/[^0-9.]/g, '')) || 0,
-              abono: parseFloat(String(getVal(['abono', 'Adelanto'])).replace(/[^0-9.]/g, '')) || 0,
-              problema_cliente: getVal(['problema segun cliente', 'Problema']),
-              diagnostico_tecnico: getVal(['diagnostico tecnico', 'Diagnóstico']),
-              veces_garantia: parseInt(getVal(['veces en garantia', 'Garantía'])) || 0,
-              fecha_ingreso: getVal(['Fecha de ingreso', 'Ingreso']) ? new Date(getVal(['Fecha de ingreso', 'Ingreso'])).toISOString() : undefined,
-              fecha_compromiso: getVal(['Fecha de compromiso', 'Compromiso']) ? new Date(getVal(['Fecha de compromiso', 'Compromiso'])).toISOString() : undefined,
+              marca: getVal(['Marca', 'Marca/Reloj']),
+              modelo_descripcion: getVal(['Modelo / Descripción breve', 'Modelo/descripcion breve', 'Modelo', 'Descripción', 'Reloj']),
+              estado: normalizeValue(String(getVal(['Estado', 'Status']) || 'en diagnostico')),
+              precio_final: parseFloat(String(getVal(['Precio final', 'Precio', 'Total'])).replace(/[^0-9.]/g, '')) || 0,
+              abono: parseFloat(String(getVal(['Abono', 'Adelanto'])).replace(/[^0-9.]/g, '')) || 0,
+              problema_cliente: getVal(['Problema (según cliente)', 'problema segun cliente', 'Problema', 'Falla']),
+              diagnostico_tecnico: getVal(['Diagnóstico técnico', 'diagnostico tecnico', 'Diagnóstico', 'Trabajo']),
+              veces_garantia: parseInt(getVal(['Veces en garantía', 'veces en garantia', 'Garantía'])) || 0,
+              fecha_ingreso: parseCSVDate(getVal(['Fecha ingreso', 'Fecha de ingreso', 'Ingreso', 'Entrada'])),
+              fecha_compromiso: parseCSVDate(getVal(['Fecha compromiso', 'Fecha de compromiso', 'Compromiso', 'Entrega'])),
+              tecnico_asignado_id: (() => {
+                const techName = normalizeValue(String(getVal(['Técnico asignado', 'Técnico', 'Asignado a']) || ""));
+                if (!techName) return null;
+                const match = perfiles.find(p => normalizeValue(p.nombre) === techName);
+                return match ? match.id : null;
+              })()
             });
 
             if (rErr) throw rErr;
             success++;
-          } catch (err: any) { errors++; }
-          setImportStatus({ message: `Importando ${i+1}/${rows.length}...`, type: 'info', progress: Math.round(((i+1)/rows.length)*100) });
+            console.log(`Row ${i} imported successfully: ${recibo}`);
+          } catch (err: any) { 
+            console.error(`Error importing row ${i}:`, err.message);
+            errors++; 
+          }
+          setImportStatus({ message: `Importando ${i + 1}/${rows.length}...`, type: 'info', progress: Math.round(((i + 1) / rows.length) * 100) });
         }
         setImportStatus({ message: `¡Listo! ${success} OK, ${errors} Error.`, type: 'success', progress: 100 });
         fetchInitialData();
@@ -154,9 +214,9 @@ export default function ReparacionesPage() {
     e.preventDefault();
     setIsSubmitting(true);
     try {
-      const { data: cData, error: cErr } = await supabase.from('clientes').upsert({ 
-        nombre_completo: form.nombre_cliente.trim(), 
-        telefono: form.telefono_cliente.trim() 
+      const { data: cData, error: cErr } = await supabase.from('clientes').upsert({
+        nombre_completo: form.nombre_cliente.trim(),
+        telefono: form.telefono_cliente.trim()
       }, { onConflict: 'nombre_completo' }).select('id');
       if (cErr) throw cErr;
 
@@ -169,6 +229,7 @@ export default function ReparacionesPage() {
         problema_cliente: form.problema.trim(),
         diagnostico_tecnico: form.diagnostico.trim(),
         estado: form.estado,
+        tecnico_asignado_id: form.tecnico_id || null,
         precio_final: parseFloat(form.precio_final) || 0,
         abono: parseFloat(form.abono) || 0,
         fecha_ingreso: new Date(form.fecha_ingreso).toISOString(),
@@ -184,9 +245,10 @@ export default function ReparacionesPage() {
         if (error) throw error;
       }
 
-      setShowAddModal(false);
-      setIsEditing(false);
       fetchInitialData();
+      setSelectedReparacion(null);
+      setIsEditing(false);
+      setShowAddModal(false);
       alert(isEditing ? "¡Actualizado!" : "¡Registrado!");
     } catch (err: any) {
       alert("Error: " + err.message);
@@ -201,20 +263,83 @@ export default function ReparacionesPage() {
       if (error) throw error;
       fetchInitialData();
       if (selectedReparacion?.id === id) {
-        setSelectedReparacion({...selectedReparacion, estado: newStatus});
+        setSelectedReparacion({ ...selectedReparacion, estado: newStatus });
       }
     } catch (err: any) { alert(err.message); }
   };
 
   const handleDelete = async (id: string) => {
-    if (!confirm("¿Seguro que deseas eliminar este registro permanentemente?")) return;
+    setIsLoading(true);
     try {
       const { error } = await supabase.from('reparaciones').delete().eq('id', id);
       if (error) throw error;
+      
+      setReparaciones(prev => prev.filter(r => r.id !== id));
+      setSelectedIds(prev => {
+        const next = new Set(prev);
+        next.delete(id);
+        return next;
+      });
       setSelectedReparacion(null);
-      fetchInitialData();
-      alert("Registro eliminado.");
-    } catch (err: any) { alert(err.message); }
+      alert('Registro eliminado con éxito');
+    } catch (err: any) {
+      alert('Error al eliminar: ' + (err.message || "Error desconocido"));
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleBulkDelete = async () => {
+    if (selectedIds.size === 0) return;
+    
+    setIsLoading(true);
+    try {
+      const { error } = await supabase
+        .from('reparaciones')
+        .delete()
+        .in('id', Array.from(selectedIds));
+
+      if (error) throw error;
+
+      if (selectedReparacion && selectedIds.has(selectedReparacion.id)) {
+        setSelectedReparacion(null);
+      }
+
+      setReparaciones(prev => prev.filter(r => !selectedIds.has(r.id)));
+      setSelectedIds(new Set());
+      setIsDeletingBulk(false);
+      alert(`${selectedIds.size} registros eliminados con éxito`);
+    } catch (err: any) {
+      alert('Error al eliminar los registros');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+
+
+  const toggleSelect = (id: string) => {
+    setSelectedIds(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  const toggleSelectAll = (visibleReparaciones: Reparacion[]) => {
+    const visibleIds = visibleReparaciones.map(r => r.id);
+    const allSelected = visibleIds.every(id => selectedIds.has(id));
+
+    setSelectedIds(prev => {
+      const next = new Set(prev);
+      if (allSelected) {
+        visibleIds.forEach(id => next.delete(id));
+      } else {
+        visibleIds.forEach(id => next.add(id));
+      }
+      return next;
+    });
   };
 
   const startEdit = (rep: Reparacion) => {
@@ -230,20 +355,20 @@ export default function ReparacionesPage() {
       precio_final: String(rep.precio_final),
       abono: String(rep.abono),
       estado: rep.estado,
+      tecnico_id: rep.tecnico_asignado_id || "",
       fecha_ingreso: rep.fecha_ingreso ? rep.fecha_ingreso.split('T')[0] : "",
       fecha_compromiso: rep.fecha_compromiso ? rep.fecha_compromiso.split('T')[0] : "",
       veces_garantia: rep.veces_garantia || 0
     });
     setIsEditing(true);
     setShowAddModal(true);
-    setSelectedReparacion(rep);
   };
 
   // --- UI Helpers ---
   const handlePrint = (rep: Reparacion) => {
     const printWindow = window.open('', '', 'width=600,height=600');
     if (!printWindow) return;
-    printWindow.document.write(`<html><head><title>Ticket - ${rep.numero_recibo}</title><style>body{font-family:sans-serif;padding:40px;}.header{text-align:center;border-bottom:2px solid black;padding-bottom:20px;}.row{display:flex;justify-content:space-between;margin-bottom:15px;}</style></head><body><div class="header"><h1>RELOJERÍA IA</h1><p>Recibo N° ${rep.numero_recibo}</p></div><div style="margin-top:30px;"><div class="row"><strong>CLIENTE:</strong><span>${rep.clientes?.nombre_completo}</span></div><div class="row"><strong>RELOJ:</strong><span>${rep.marca}</span></div><div class="row"><strong>TOTAL:</strong><span>$${rep.precio_final}</span></div><div class="row"><strong>SALDO:</strong><span>$${rep.saldo_pendiente}</span></div></div></body></html>`);
+    printWindow.document.write(`<html><head><title>Ticket - ${rep.numero_recibo}</title><style>body{font-family:sans-serif;padding:40px;}.header{text-align:center;border-bottom:2px solid black;padding-bottom:20px;}.row{display:flex;justify-content:space-between;margin-bottom:15px;}.diagnosis{margin-top:20px;padding:15px;background:#f9f9f9;border-radius:10px;font-size:14px;}</style></head><body><div class="header"><h1>RELOJERÍA IA</h1><p>Recibo N° ${rep.numero_recibo}</p></div><div style="margin-top:30px;"><div class="row"><strong>CLIENTE:</strong><span>${rep.clientes?.nombre_completo}</span></div><div class="row"><strong>RELOJ:</strong><span>${rep.marca}</span></div><div class="row"><strong>TOTAL:</strong><span>$${rep.precio_final}</span></div><div class="row"><strong>SALDO:</strong><span>$${rep.saldo_pendiente}</span></div>${rep.diagnostico_tecnico ? `<div class="diagnosis"><strong>DIAGNÓSTICO:</strong><br/>${rep.diagnostico_tecnico}</div>` : ''}</div></body></html>`);
     printWindow.document.close();
     printWindow.print();
   };
@@ -252,52 +377,68 @@ export default function ReparacionesPage() {
     switch (status?.toLowerCase()) {
       case 'entregado': return 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400';
       case 'listo': return 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400';
-      case 'en taller': return 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400';
+      case 'en reparacion': return 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400';
       case 'garantia': return 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400';
+      case 'en diagnostico': return 'bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-400';
+      case 'no repara': return 'bg-neutral-100 text-neutral-700 dark:bg-neutral-800 dark:text-neutral-400';
       default: return 'bg-neutral-100 text-neutral-700 dark:bg-neutral-800 dark:text-neutral-400';
     }
   };
 
-  const overdueRepairs = reparaciones.filter(r => r.estado !== 'entregado' && r.fecha_compromiso && new Date(r.fecha_compromiso) < new Date());
+  const overdueRepairs = reparaciones.filter(r => 
+    !['entregado', 'listo', 'no repara'].includes(r.estado) && 
+    r.fecha_compromiso && 
+    new Date(r.fecha_compromiso) < new Date()
+  );
   const upcomingRepairs = reparaciones.filter(r => {
     if (r.estado === 'entregado' || !r.fecha_compromiso) return false;
     const diff = new Date(r.fecha_compromiso).getTime() - new Date().getTime();
     const days = diff / (1000 * 60 * 60 * 24);
-    return days >= 0 && days <= 2;
+    return days >= 0 && days <= 4;
   });
 
   const filteredReparaciones = reparaciones.filter(r => {
     const s = searchTerm.toLowerCase();
-    const matchesSearch = 
+    const matchesSearch =
       (r.numero_recibo || "").toLowerCase().includes(s) ||
       (r.clientes?.nombre_completo || "").toLowerCase().includes(s) ||
       (r.marca || "").toLowerCase().includes(s) ||
       (r.modelo_descripcion || "").toLowerCase().includes(s);
-    
+
     const matchesStatus = filterStatus === "todos" || r.estado === filterStatus;
     const matchesOverdue = !filterOverdueOnly || overdueRepairs.some(o => o.id === r.id);
-    
-    // Mejorar matching de fecha: comparar solo la parte YYYY-MM-DD
-    const matchesDate = !filterDate || 
-      (r.fecha_ingreso && r.fecha_ingreso.startsWith(filterDate)) || 
-      (r.fecha_compromiso && r.fecha_compromiso.startsWith(filterDate));
-    
-    return matchesSearch && matchesStatus && matchesOverdue && matchesDate;
+    const matchesDate = !filterDate ||
+      (r.fecha_ingreso && new Date(r.fecha_ingreso).toLocaleDateString('en-CA') === filterDate) ||
+      (r.fecha_compromiso && new Date(r.fecha_compromiso).toLocaleDateString('en-CA') === filterDate);
+
+    const matchesMonth = filterMonth === "todos" ||
+      (r.fecha_ingreso && (new Date(r.fecha_ingreso).getMonth() + 1).toString() === filterMonth);
+
+    const matchesYear = filterYear === "todos" ||
+      (r.fecha_ingreso && new Date(r.fecha_ingreso).getFullYear().toString() === filterYear);
+
+    return matchesSearch && matchesStatus && matchesOverdue && matchesDate && matchesMonth && matchesYear;
+  });
+
+  const sortedReparaciones = [...filteredReparaciones].sort((a, b) => {
+    const dateA = new Date(a.created_at || a.fecha_ingreso).getTime();
+    const dateB = new Date(b.created_at || b.fecha_ingreso).getTime();
+    return sortOrder === "desc" ? dateB - dateA : dateA - dateB;
   });
 
   return (
     <div className="max-w-7xl mx-auto space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-700 p-4">
-      
+
       {/* Premium Header */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-6 bg-white/50 dark:bg-neutral-900/50 backdrop-blur-3xl p-8 rounded-[2.5rem] border border-white dark:border-neutral-800 shadow-xl">
         <div className="flex items-center gap-4">
-           <div className="p-4 rounded-3xl bg-black dark:bg-white text-white dark:text-black shadow-lg">
-              <Wrench className="w-6 h-6" />
-           </div>
-           <div>
-             <h1 className="text-3xl font-black text-neutral-900 dark:text-white uppercase italic tracking-tighter">Gestión de Taller</h1>
-             <p className="text-xs font-bold text-neutral-400 uppercase tracking-widest">Relojería Profesional</p>
-           </div>
+          <div className="p-4 rounded-3xl bg-black dark:bg-white text-white dark:text-black shadow-lg">
+            <Wrench className="w-6 h-6" />
+          </div>
+          <div>
+            <h1 className="text-3xl font-black text-neutral-900 dark:text-white uppercase italic tracking-tighter">Gestión de Taller</h1>
+            <p className="text-xs font-bold text-neutral-400 uppercase tracking-widest">Relojería Profesional</p>
+          </div>
         </div>
         <div className="flex gap-3">
           <button onClick={() => setShowImportModal(true)} className="px-6 py-4 rounded-2xl bg-neutral-100 dark:bg-neutral-800 text-[10px] font-black uppercase tracking-widest hover:bg-neutral-200 transition-all flex items-center gap-2">
@@ -312,7 +453,7 @@ export default function ReparacionesPage() {
       {/* Stats Dashboard */}
       <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
         {[
-          { label: "En Proceso", value: reparaciones.filter(r => r.estado !== 'entregado').length, icon: Clock, color: "text-amber-500", bg: "bg-amber-500/10" },
+          { label: "En Proceso", value: reparaciones.filter(r => !['entregado', 'no repara'].includes(r.estado)).length, icon: Clock, color: "text-amber-500", bg: "bg-amber-500/10" },
           { label: "Para Entrega", value: reparaciones.filter(r => r.estado === 'listo').length, icon: CheckCircle2, color: "text-blue-500", bg: "bg-blue-500/10" },
           { label: "Saldo Total", value: `$${reparaciones.reduce((acc, r) => acc + (r.estado !== 'entregado' ? r.saldo_pendiente : 0), 0)}`, icon: DollarSign, color: "text-green-500", bg: "bg-green-500/10" },
           { label: "Garantías", value: reparaciones.filter(r => r.estado === 'garantia').length, icon: AlertCircle, color: "text-red-500", bg: "bg-red-500/10" },
@@ -329,52 +470,231 @@ export default function ReparacionesPage() {
         ))}
       </div>
 
-      {/* Advanced Filters */}
-      <div className="bg-white dark:bg-neutral-900 p-6 rounded-[2.5rem] border border-neutral-100 dark:border-neutral-800 shadow-sm flex flex-col lg:flex-row gap-6 items-center">
-         <div className="relative flex-1 group w-full">
-            <Search className="absolute left-6 top-1/2 -translate-y-1/2 w-4 h-4 text-neutral-400" />
-            <input type="text" placeholder="Buscar ticket, cliente, marca..." className="w-full pl-14 pr-6 py-4 rounded-2xl bg-neutral-50 dark:bg-neutral-800 border-none text-sm font-bold outline-none ring-2 ring-transparent focus:ring-black/5 dark:focus:ring-white/5 transition-all" value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)}/>
-         </div>
-         <div className="flex items-center gap-4 w-full lg:w-auto overflow-x-auto no-scrollbar pb-2 lg:pb-0">
-            <div className="flex bg-neutral-50 dark:bg-neutral-800 p-1.5 rounded-2xl gap-1">
-               {['todos', 'recibido', 'en taller', 'listo', 'garantia', 'entregado'].map(st => (
-                  <button key={st} onClick={() => setFilterStatus(st)} className={`px-4 py-2 rounded-xl text-[9px] font-black uppercase tracking-widest transition-all ${filterStatus === st ? 'bg-black text-white dark:bg-white dark:text-black shadow-lg' : 'text-neutral-400'}`}>{st}</button>
-               ))}
-            </div>
-            <div className="h-8 w-[1px] bg-neutral-200 dark:bg-neutral-700 mx-2 hidden lg:block" />
-            <button onClick={() => setFilterOverdueOnly(!filterOverdueOnly)} className={`px-4 py-3 rounded-2xl text-[9px] font-black uppercase tracking-widest border transition-all ${filterOverdueOnly ? 'bg-red-500 text-white border-red-500' : 'bg-transparent text-neutral-400 border-neutral-200 dark:border-neutral-700'}`}>Solo Atrasadas</button>
-            <div className="relative group">
-               <Calendar className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-neutral-400 pointer-events-none" />
-               <input type="date" className="pl-12 pr-4 py-3 rounded-2xl bg-neutral-50 dark:bg-neutral-800 text-[10px] font-black uppercase outline-none" value={filterDate} onChange={(e) => setFilterDate(e.target.value)} />
-            </div>
-         </div>
-      </div>
+      {/* Sleek Toolbar */}
+      <div className="flex flex-wrap items-center gap-4">
+        {/* Unified Search */}
+        <div className="relative w-full lg:w-96 group">
+          <Search className="absolute left-5 top-1/2 -translate-y-1/2 w-4 h-4 text-neutral-400 group-focus-within:text-black dark:group-focus-within:text-white transition-colors pointer-events-none" />
+          <input
+            type="text"
+            placeholder="Buscar por ticket, cliente o marca..."
+            className="w-full pl-12 pr-6 py-4 rounded-2xl bg-white dark:bg-neutral-900 border border-neutral-100 dark:border-neutral-800 text-sm font-medium outline-none focus:ring-4 focus:ring-black/5 dark:focus:ring-white/5 transition-all shadow-sm"
+            value={searchTerm}
+            onChange={(e) => setSearchTerm(e.target.value)}
+          />
+        </div>
+
+        {/* Status Dropdown */}
+        <div className="w-full lg:w-64">
+          <div className="relative group">
+            <Filter className="absolute left-5 top-1/2 -translate-y-1/2 w-4 h-4 text-neutral-400 pointer-events-none" />
+            <select
+              value={filterStatus}
+              onChange={(e) => setFilterStatus(e.target.value)}
+              className="w-full pl-12 pr-10 py-4 rounded-2xl bg-white dark:bg-neutral-900 border border-neutral-100 dark:border-neutral-800 text-xs font-black uppercase tracking-widest appearance-none outline-none focus:ring-4 focus:ring-black/5 dark:focus:ring-white/5 transition-all shadow-sm cursor-pointer"
+            >
+              <option value="todos">Todos los Estados</option>
+              <option value="en diagnostico">En Diagnóstico</option>
+              <option value="en reparacion">En Reparación</option>
+              <option value="listo">Listo para Entrega</option>
+              <option value="garantia">Garantía</option>
+              <option value="no repara">No Repara</option>
+              <option value="entregado">Entregado</option>
+            </select>
+            <ChevronRight className="absolute right-5 top-1/2 -translate-y-1/2 w-4 h-4 text-neutral-300 pointer-events-none rotate-90" />
+          </div>
+        </div>
+
+        {/* Consolidated Time Filter */}
+        <div className="relative w-full lg:w-auto">
+          <button
+            onClick={() => setShowTimeFilters(!showTimeFilters)}
+            className={`w-full lg:w-auto px-6 py-4 rounded-2xl text-[10px] font-black uppercase tracking-widest border transition-all flex items-center justify-center gap-3 shadow-sm ${showTimeFilters || filterMonth !== "todos" || filterDate || sortOrder !== "desc"
+                ? "bg-black dark:bg-white text-white dark:text-black border-black dark:border-white"
+                : "bg-white dark:bg-neutral-900 text-neutral-500 border-neutral-100 dark:border-neutral-800 hover:bg-neutral-50 dark:hover:bg-neutral-800"
+              }`}
+          >
+            <Calendar className="w-3.5 h-3.5" />
+            <span className="truncate max-w-[120px]">
+              {filterDate ? filterDate : filterMonth !== "todos"
+                ? `${["Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio", "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"][parseInt(filterMonth) - 1]} ${filterYear !== "todos" ? filterYear : ""}`
+                : filterYear !== "todos" ? `Año: ${filterYear}` : "Filtro Temporal"
+              }
+            </span>
+            <ChevronRight className={`w-3 h-3 transition-transform ${showTimeFilters ? "rotate-90" : ""}`} />
+          </button>
+
+          {showTimeFilters && (
+            <>
+              <div
+                className="fixed inset-0 z-40"
+                onClick={() => setShowTimeFilters(false)}
+              />
+              <div className="absolute top-full left-0 mt-3 w-72 bg-white dark:bg-neutral-900 border border-neutral-100 dark:border-neutral-800 rounded-3xl shadow-2xl p-6 z-50 animate-in fade-in slide-in-from-top-2 duration-200">
+                <div className="space-y-6">
+                  {/* Sorting */}
+                  <div>
+                    <label className="text-[9px] font-black uppercase tracking-widest text-neutral-400 mb-3 block">Orden de Aparición</label>
+                    <div className="flex bg-neutral-50 dark:bg-neutral-800/50 p-1 rounded-xl">
+                      <button
+                        onClick={() => setSortOrder("desc")}
+                        className={`flex-1 py-2 rounded-lg text-[9px] font-bold uppercase transition-all ${sortOrder === "desc" ? "bg-white dark:bg-neutral-700 shadow-sm text-black dark:text-white" : "text-neutral-400"}`}
+                      >
+                        Recientes
+                      </button>
+                      <button
+                        onClick={() => setSortOrder("asc")}
+                        className={`flex-1 py-2 rounded-lg text-[9px] font-bold uppercase transition-all ${sortOrder === "asc" ? "bg-white dark:bg-neutral-700 shadow-sm text-black dark:text-white" : "text-neutral-400"}`}
+                      >
+                        Antiguas
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Month Selection */}
+                  <div>
+                    <label className="text-[9px] font-black uppercase tracking-widest text-neutral-400 mb-3 block">Filtrar por Mes</label>
+                    <select
+                      value={filterMonth}
+                      onChange={(e) => {
+                        setFilterMonth(e.target.value);
+                        setFilterDate(""); // Clear specific date when choosing month
+                      }}
+                      className="w-full px-4 py-3 rounded-xl bg-neutral-50 dark:bg-neutral-800/50 border-none text-xs font-bold outline-none ring-0 focus:ring-2 focus:ring-black/5 dark:focus:ring-white/5 transition-all"
+                    >
+                      <option value="todos">Todos los meses</option>
+                      {["Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio", "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"].map((m, i) => (
+                        <option key={i} value={(i + 1).toString()}>{m}</option>
+                      ))}
+                    </select>
+                  </div>
+
+                  {/* Year Selection */}
+                  <div>
+                    <label className="text-[9px] font-black uppercase tracking-widest text-neutral-400 mb-3 block">Filtrar por Año</label>
+                    <select
+                      value={filterYear}
+                      onChange={(e) => {
+                        setFilterYear(e.target.value);
+                        setFilterDate("");
+                      }}
+                      className="w-full px-4 py-3 rounded-xl bg-neutral-50 dark:bg-neutral-800/50 border-none text-xs font-bold outline-none ring-0 focus:ring-2 focus:ring-black/5 dark:focus:ring-white/5 transition-all"
+                    >
+                      <option value="todos">Todos los años</option>
+                      {Array.from({ length: 5 }, (_, i) => new Date().getFullYear() - i).map(y => (
+                        <option key={y} value={y.toString()}>{y}</option>
+                      ))}
+                    </select>
+                  </div>
+
+                  {/* Specific Date */}
+                  <div>
+                    <div className="flex items-center justify-between mb-3">
+                      <label className="text-[9px] font-black uppercase tracking-widest text-neutral-400 block">Día Específico</label>
+                      {filterDate && (
+                        <button onClick={() => setFilterDate("")} className="text-[9px] font-bold text-red-500 hover:underline">Limpiar</button>
+                      )}
+                    </div>
+                    <input
+                      type="date"
+                      value={filterDate}
+                      onChange={(e) => {
+                        setFilterDate(e.target.value);
+                        setFilterMonth("todos"); // Clear month preset when choosing specific date
+                      }}
+                      className="w-full px-4 py-3 rounded-xl bg-neutral-50 dark:bg-neutral-800/50 border-none text-xs font-bold outline-none ring-0 focus:ring-2 focus:ring-black/5 dark:focus:ring-white/5 transition-all"
+                    />
+                  </div>
+                </div>
+              </div>
+            </>
+          )}
+        </div>
+
+        {/* Action Toggles */}
+          <div className="flex items-center gap-2 w-full lg:w-auto">
+            {selectedIds.size > 0 && (
+              <div className="flex gap-2 flex-1 lg:flex-none">
+                <button
+                  onClick={() => toggleSelectAll(sortedReparaciones)}
+                  className="flex-1 lg:flex-none px-6 py-4 rounded-2xl text-[10px] font-black uppercase tracking-widest bg-neutral-100 dark:bg-neutral-800 text-neutral-600 dark:text-neutral-400 border border-neutral-200 dark:border-neutral-700 hover:bg-neutral-200 transition-all flex items-center justify-center gap-2 shadow-sm"
+                >
+                  <CheckSquare className="w-3.5 h-3.5" />
+                  {sortedReparaciones.length > 0 && sortedReparaciones.every(r => selectedIds.has(r.id)) ? "Desmarcar" : "Marcar Todos"}
+                </button>
+                {isDeletingBulk ? (
+                  <button
+                    onClick={handleBulkDelete}
+                    className="flex-1 lg:flex-none px-6 py-4 rounded-2xl text-[10px] font-black uppercase tracking-widest bg-red-600 text-white border border-red-600 hover:bg-red-700 transition-all flex items-center justify-center gap-2 shadow-lg shadow-red-500/30 animate-pulse"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                    CONFIRMAR {selectedIds.size}
+                  </button>
+                ) : (
+                  <button
+                    onClick={() => setIsDeletingBulk(true)}
+                    className="flex-1 lg:flex-none px-6 py-4 rounded-2xl text-[10px] font-black uppercase tracking-widest bg-red-50 text-red-600 border border-red-100 hover:bg-red-500 hover:text-white transition-all flex items-center justify-center gap-2 shadow-sm"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                    Borrar ({selectedIds.size})
+                  </button>
+                )}
+              </div>
+            )}
+
+            <button
+              onClick={() => setFilterOverdueOnly(!filterOverdueOnly)}
+              className={`flex-1 lg:flex-none px-6 py-4 rounded-2xl text-[10px] font-black uppercase tracking-widest border transition-all flex items-center justify-center gap-3 shadow-sm ${filterOverdueOnly
+                  ? "bg-red-500 text-white border-red-500"
+                  : "bg-white dark:bg-neutral-900 text-neutral-500 border-neutral-100 dark:border-neutral-800 hover:bg-neutral-50 dark:hover:bg-neutral-800"
+                }`}
+            >
+              <AlertTriangle className="w-3.5 h-3.5" />
+              Solo Atrasadas
+            </button>
+          </div>
+        </div>
 
       {/* Main Table */}
       <div className="bg-white dark:bg-neutral-900 rounded-[2.5rem] border border-neutral-100 dark:border-neutral-800 overflow-hidden shadow-2xl">
         <div className="overflow-x-auto">
-          <table className="w-full text-left border-separate border-spacing-0">
+          <table className="w-full text-left border-collapse">
             <thead>
-              <tr className="bg-neutral-50/50 dark:bg-neutral-800/20">
-                <th className="px-8 py-6 text-[9px] font-black uppercase text-neutral-400 tracking-widest">Ticket / Reloj</th>
-                <th className="px-8 py-6 text-[9px] font-black uppercase text-neutral-400 tracking-widest">Cliente / Tel.</th>
-                <th className="px-8 py-6 text-[9px] font-black uppercase text-neutral-400 tracking-widest">Fechas (Ingreso | Compromiso)</th>
-                <th className="px-8 py-6 text-[9px] font-black uppercase text-neutral-400 tracking-widest">Estado</th>
-                <th className="px-8 py-6 text-[9px] font-black uppercase text-neutral-400 tracking-widest text-right">Saldo</th>
+              <tr className="border-b border-neutral-50 dark:border-neutral-800/50">
+                <th className="px-8 py-5">
+                  <div className="flex items-center gap-4">
+                    <div className="w-4 h-4" /> {/* Espacio para alinear con los checkboxes inferiores */}
+                    <span className="text-[10px] font-black uppercase tracking-widest text-neutral-400">Ticket / Reloj</span>
+                  </div>
+                </th>
+                <th className="px-8 py-5 text-[10px] font-black uppercase tracking-widest text-neutral-400">Cliente / Tel.</th>
+                <th className="px-8 py-5 text-[10px] font-black uppercase tracking-widest text-neutral-400">Fechas (Ingreso | Compromiso)</th>
+                <th className="px-8 py-5 text-[10px] font-black uppercase tracking-widest text-neutral-400">Estado</th>
+                <th className="px-8 py-5 text-[10px] font-black uppercase tracking-widest text-neutral-400">Saldo</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-neutral-50 dark:divide-neutral-800/10">
               {isLoading ? (
-                <tr><td colSpan={5} className="p-32 text-center"><Loader2 className="w-10 h-10 animate-spin mx-auto text-neutral-200"/></td></tr>
-              ) : filteredReparaciones.length === 0 ? (
+                <tr><td colSpan={5} className="p-32 text-center"><Loader2 className="w-10 h-10 animate-spin mx-auto text-neutral-200" /></td></tr>
+              ) : sortedReparaciones.length === 0 ? (
                 <tr><td colSpan={5} className="p-32 text-center text-neutral-400 font-bold italic">No se encontraron resultados.</td></tr>
               ) : (
-                filteredReparaciones.slice(0, 50).map((rep) => (
+                sortedReparaciones.slice(0, 50).map((rep) => (
                   <tr key={rep.id} onClick={() => setSelectedReparacion(rep)} className="group hover:bg-neutral-50 dark:hover:bg-neutral-800/30 transition-all cursor-pointer">
                     <td className="px-8 py-6">
                       <div className="flex items-center gap-4">
-                        <div className="w-12 h-12 rounded-2xl bg-neutral-100 dark:bg-neutral-800 flex flex-col items-center justify-center group-hover:bg-black group-hover:text-white transition-all">
-                           <span className="text-[10px] font-black">{rep.numero_recibo}</span>
+                        <input
+                          type="checkbox"
+                          className="w-4 h-4 rounded border-neutral-300 text-black focus:ring-black cursor-pointer"
+                          checked={selectedIds.has(rep.id)}
+                          onChange={(e) => {
+                            e.stopPropagation();
+                            toggleSelect(rep.id);
+                          }}
+                          onClick={(e) => e.stopPropagation()}
+                        />
+                        <div className="w-12 h-12 rounded-2xl bg-neutral-100 dark:bg-neutral-800 flex items-center justify-center group-hover:bg-black group-hover:text-white transition-all">
+                          <span className="text-[10px] font-black">{rep.numero_recibo}</span>
                         </div>
                         <div>
                           <p className="text-sm font-black text-neutral-900 dark:text-white tracking-tight">{rep.marca} {rep.modelo_descripcion || 'S/N'}</p>
@@ -383,25 +703,25 @@ export default function ReparacionesPage() {
                       </div>
                     </td>
                     <td className="px-8 py-6">
-                       <p className="text-xs font-bold text-neutral-800 dark:text-white">{rep.clientes?.nombre_completo}</p>
-                       <p className="text-[10px] font-black text-neutral-400 tracking-tighter">{rep.clientes?.telefono || 'Sin Tel.'}</p>
+                      <p className="text-xs font-bold text-neutral-800 dark:text-white">{rep.clientes?.nombre_completo}</p>
+                      <p className="text-[10px] font-black text-neutral-400 tracking-tighter">{rep.clientes?.telefono || 'Sin Tel.'}</p>
                     </td>
                     <td className="px-8 py-6">
-                       <div className="flex items-center gap-4 text-[10px] font-black uppercase">
-                          <span className="text-neutral-500">{rep.fecha_ingreso ? new Date(rep.fecha_ingreso).toLocaleDateString() : '--'}</span>
-                          <ChevronRight className="w-3 h-3 text-neutral-300" />
-                          <span className={`${overdueRepairs.some(o => o.id === rep.id) ? 'text-red-500 bg-red-50 dark:bg-red-500/10 px-2 py-1 rounded-lg' : 'text-neutral-400'}`}>
-                             {rep.fecha_compromiso ? new Date(rep.fecha_compromiso).toLocaleDateString() : 'SIN FECHA'}
-                          </span>
-                       </div>
+                      <div className="flex items-center gap-4 text-[10px] font-black uppercase">
+                        <span className="text-neutral-500">{rep.fecha_ingreso ? new Date(rep.fecha_ingreso).toLocaleDateString() : '--'}</span>
+                        <ChevronRight className="w-3 h-3 text-neutral-300" />
+                        <span className={`${overdueRepairs.some(o => o.id === rep.id) ? 'text-red-500 bg-red-50 dark:bg-red-500/10 px-2 py-1 rounded-lg' : 'text-neutral-400'}`}>
+                          {rep.fecha_compromiso ? new Date(rep.fecha_compromiso).toLocaleDateString() : 'SIN FECHA'}
+                        </span>
+                      </div>
                     </td>
                     <td className="px-8 py-6">
-                       <span className={`inline-flex items-center px-4 py-1.5 rounded-full text-[9px] font-black uppercase tracking-widest ${getStatusColor(rep.estado)}`}>
-                         {rep.estado}
-                       </span>
+                      <span className={`inline-flex items-center px-4 py-1.5 rounded-full text-[9px] font-black uppercase tracking-widest ${getStatusColor(rep.estado)}`}>
+                        {rep.estado}
+                      </span>
                     </td>
                     <td className="px-8 py-6 text-right">
-                       <p className="text-sm font-black text-neutral-900 dark:text-white">${rep.saldo_pendiente}</p>
+                      <p className="text-sm font-black text-neutral-900 dark:text-white">${rep.saldo_pendiente}</p>
                     </td>
                   </tr>
                 ))
@@ -416,139 +736,185 @@ export default function ReparacionesPage() {
       {/* Manual Entry / Edit Modal */}
       {showAddModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-6 bg-black/80 backdrop-blur-xl animate-in fade-in duration-500">
-           <div className="bg-white dark:bg-neutral-900 w-full max-w-3xl rounded-[3rem] p-12 border border-neutral-100 dark:border-neutral-800 shadow-2xl relative overflow-y-auto max-h-[90vh] custom-scrollbar">
-              <button onClick={() => setShowAddModal(false)} className="absolute top-8 right-8 p-3 rounded-full hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-all"><X /></button>
-              <h2 className="text-3xl font-black italic uppercase tracking-tighter mb-8">{isEditing ? "Editar Reparación" : "Ingreso de Servicio"}</h2>
+          <div className="bg-white dark:bg-neutral-900 w-full max-w-3xl rounded-[3rem] p-12 border border-neutral-100 dark:border-neutral-800 shadow-2xl relative overflow-y-auto max-h-[90vh] custom-scrollbar">
+            <button onClick={() => { setShowAddModal(false); setIsEditing(false); setSelectedReparacion(null); }} className="absolute top-8 right-8 p-3 rounded-full hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-all"><X /></button>
+            <h2 className="text-3xl font-black italic uppercase tracking-tighter mb-8">{isEditing ? "Editar Reparación" : "Ingreso de Servicio"}</h2>
 
-              <form onSubmit={handleSaveRepair} className="grid grid-cols-1 md:grid-cols-3 gap-8">
-                 <div className="space-y-4">
-                    <p className="text-[10px] font-black text-neutral-300 uppercase tracking-widest border-b pb-2">Cliente</p>
-                    <input required className="w-full px-5 py-4 rounded-xl bg-neutral-50 dark:bg-neutral-800 text-sm font-bold" placeholder="Nombre" value={form.nombre_cliente} onChange={e => setForm({...form, nombre_cliente: e.target.value})} />
-                    <input className="w-full px-5 py-4 rounded-xl bg-neutral-50 dark:bg-neutral-800 text-sm font-bold" placeholder="Teléfono" value={form.telefono_cliente} onChange={e => setForm({...form, telefono_cliente: e.target.value})} />
-                 </div>
-                 
-                 <div className="space-y-4">
-                    <p className="text-[10px] font-black text-neutral-300 uppercase tracking-widest border-b pb-2">Reloj</p>
-                    <input required className="w-full px-5 py-4 rounded-xl bg-neutral-900 text-white font-black uppercase text-center" placeholder="RECIBO N°" value={form.numero_recibo} onChange={e => setForm({...form, numero_recibo: e.target.value})} />
-                    <select className="w-full px-5 py-4 rounded-xl bg-neutral-50 dark:bg-neutral-800 text-[10px] font-black uppercase" value={form.tipo_reloj} onChange={e => setForm({...form, tipo_reloj: e.target.value})}>
-                        <option>Mecánico</option><option>Quarzo</option><option>Pared</option><option>Mesa</option>
-                    </select>
-                    <input className="w-full px-5 py-4 rounded-xl bg-neutral-50 dark:bg-neutral-800 text-sm font-bold" placeholder="Marca" value={form.marca} onChange={e => setForm({...form, marca: e.target.value})} />
-                    <input className="w-full px-5 py-4 rounded-xl bg-neutral-50 dark:bg-neutral-800 text-sm font-bold" placeholder="Modelo" value={form.modelo} onChange={e => setForm({...form, modelo: e.target.value})} />
-                 </div>
+            <form onSubmit={handleSaveRepair} className="grid grid-cols-1 md:grid-cols-3 gap-8">
+              <div className="space-y-4">
+                <p className="text-[10px] font-black text-neutral-300 uppercase tracking-widest border-b pb-2">Cliente</p>
+                <input required className="w-full px-5 py-4 rounded-xl bg-neutral-50 dark:bg-neutral-800 text-sm font-bold" placeholder="Nombre" value={form.nombre_cliente} onChange={e => setForm({ ...form, nombre_cliente: e.target.value })} />
+                <input className="w-full px-5 py-4 rounded-xl bg-neutral-50 dark:bg-neutral-800 text-sm font-bold" placeholder="Teléfono" value={form.telefono_cliente} onChange={e => setForm({ ...form, telefono_cliente: e.target.value })} />
+              </div>
 
-                 <div className="space-y-4">
-                    <p className="text-[10px] font-black text-neutral-300 uppercase tracking-widest border-b pb-2">Fechas</p>
-                    <label className="text-[9px] font-bold text-neutral-400">FECHA INGRESO</label>
-                    <input type="date" className="w-full px-5 py-3 rounded-xl bg-neutral-50 dark:bg-neutral-800 text-sm font-bold" value={form.fecha_ingreso} onChange={e => setForm({...form, fecha_ingreso: e.target.value})} />
-                    <label className="text-[9px] font-bold text-neutral-400">FECHA COMPROMISO</label>
-                    <input type="date" className="w-full px-5 py-3 rounded-xl bg-neutral-50 dark:bg-neutral-800 text-sm font-bold border-2 border-amber-500/20" value={form.fecha_compromiso} onChange={e => setForm({...form, fecha_compromiso: e.target.value})} />
-                 </div>
+              <div className="space-y-4">
+                <p className="text-[10px] font-black text-neutral-300 uppercase tracking-widest border-b pb-2">Reloj</p>
+                <input required className="w-full px-5 py-4 rounded-xl bg-neutral-900 text-white font-black uppercase text-center" placeholder="RECIBO N°" value={form.numero_recibo} onChange={e => setForm({ ...form, numero_recibo: e.target.value })} />
+                <select className="w-full px-5 py-4 rounded-xl bg-neutral-50 dark:bg-neutral-800 text-[10px] font-black uppercase" value={form.tipo_reloj} onChange={e => setForm({ ...form, tipo_reloj: e.target.value })}>
+                  <option>Mecánico</option><option>Quarzo</option><option>Pared</option><option>Mesa</option>
+                </select>
+                <input className="w-full px-5 py-4 rounded-xl bg-neutral-50 dark:bg-neutral-800 text-sm font-bold" placeholder="Marca" value={form.marca} onChange={e => setForm({ ...form, marca: e.target.value })} />
+                <input className="w-full px-5 py-4 rounded-xl bg-neutral-50 dark:bg-neutral-800 text-sm font-bold" placeholder="Modelo" value={form.modelo} onChange={e => setForm({ ...form, modelo: e.target.value })} />
+                <p className="text-[9px] font-black text-neutral-400 uppercase mt-2">Estado Actual</p>
+                <select className="w-full px-5 py-4 rounded-xl bg-neutral-100 dark:bg-neutral-800 text-[10px] font-black uppercase appearance-none cursor-pointer" value={form.estado} onChange={e => setForm({ ...form, estado: e.target.value })}>
+                  <option value="en diagnostico">En Diagnóstico</option>
+                  <option value="en reparacion">En Reparación</option>
+                  <option value="listo">Listo para Entrega</option>
+                  <option value="garantia">Garantía</option>
+                  <option value="no repara">No Repara</option>
+                  <option value="entregado">Entregado</option>
+                </select>
+                <p className="text-[9px] font-black text-neutral-400 uppercase mt-2">Técnico Asignado</p>
+                <select className="w-full px-5 py-4 rounded-xl bg-amber-50 dark:bg-amber-900/10 text-[10px] font-black uppercase appearance-none cursor-pointer border-2 border-amber-500/10" value={form.tecnico_id} onChange={e => setForm({ ...form, tecnico_id: e.target.value })}>
+                  <option value="">Sin Asignar</option>
+                  {perfiles.map(p => (
+                    <option key={p.id} value={p.id}>{p.nombre || 'Sin Nombre'} ({p.rol})</option>
+                  ))}
+                </select>
+              </div>
 
-                 <div className="md:col-span-3 grid grid-cols-1 md:grid-cols-2 gap-8">
-                    <div className="space-y-4">
-                       <p className="text-[10px] font-black text-neutral-300 uppercase tracking-widest border-b pb-2">Problema y Diagnóstico</p>
-                       <textarea className="w-full px-5 py-4 rounded-xl bg-neutral-50 dark:bg-neutral-800 text-sm font-bold min-h-[80px]" placeholder="Problema según cliente" value={form.problema} onChange={e => setForm({...form, problema: e.target.value})} />
-                       <textarea className="w-full px-5 py-4 rounded-xl bg-neutral-50 dark:bg-neutral-800 text-sm font-bold min-h-[80px]" placeholder="Diagnóstico técnico" value={form.diagnostico} onChange={e => setForm({...form, diagnostico: e.target.value})} />
-                    </div>
-                    <div className="space-y-4">
-                       <p className="text-[10px] font-black text-neutral-300 uppercase tracking-widest border-b pb-2">Valores</p>
-                       <div className="grid grid-cols-2 gap-4">
-                          <input type="number" className="w-full px-5 py-6 rounded-2xl bg-neutral-50 dark:bg-neutral-800 text-2xl font-black text-center" placeholder="Total" value={form.precio_final} onChange={e => setForm({...form, precio_final: e.target.value})} />
-                          <input type="number" className="w-full px-5 py-6 rounded-2xl bg-green-50 dark:bg-green-900/20 text-green-600 text-2xl font-black text-center" placeholder="Abono" value={form.abono} onChange={e => setForm({...form, abono: e.target.value})} />
-                       </div>
-                    </div>
-                 </div>
+              <div className="space-y-4">
+                <p className="text-[10px] font-black text-neutral-300 uppercase tracking-widest border-b pb-2">Fechas</p>
+                <label className="text-[9px] font-bold text-neutral-400">FECHA INGRESO</label>
+                <input type="date" className="w-full px-5 py-3 rounded-xl bg-neutral-50 dark:bg-neutral-800 text-sm font-bold" value={form.fecha_ingreso} onChange={e => setForm({ ...form, fecha_ingreso: e.target.value })} />
+                <label className="text-[9px] font-bold text-neutral-400">FECHA COMPROMISO</label>
+                <input type="date" className="w-full px-5 py-3 rounded-xl bg-neutral-50 dark:bg-neutral-800 text-sm font-bold border-2 border-amber-500/20" value={form.fecha_compromiso} onChange={e => setForm({ ...form, fecha_compromiso: e.target.value })} />
+              </div>
 
-                 <button disabled={isSubmitting} className="md:col-span-3 mt-6 py-6 rounded-[2rem] bg-black dark:bg-white text-white dark:text-black font-black uppercase italic tracking-[0.3em] flex items-center justify-center gap-4 active:scale-95 transition-all">
-                    {isSubmitting ? <Loader2 className="animate-spin" /> : <><Save className="w-6 h-6" /> {isEditing ? "Guardar Cambios" : "Registrar Servicio"}</>}
-                 </button>
-              </form>
-           </div>
+              <div className="md:col-span-3 grid grid-cols-1 md:grid-cols-2 gap-8">
+                <div className="space-y-4">
+                  <p className="text-[10px] font-black text-neutral-300 uppercase tracking-widest border-b pb-2">Problema y Diagnóstico</p>
+                  <textarea className="w-full px-5 py-4 rounded-xl bg-neutral-50 dark:bg-neutral-800 text-sm font-bold min-h-[80px]" placeholder="Problema según cliente" value={form.problema} onChange={e => setForm({ ...form, problema: e.target.value })} />
+                  <textarea className="w-full px-5 py-4 rounded-xl bg-neutral-50 dark:bg-neutral-800 text-sm font-bold min-h-[80px]" placeholder="Diagnóstico técnico" value={form.diagnostico} onChange={e => setForm({ ...form, diagnostico: e.target.value })} />
+                </div>
+                <div className="space-y-4">
+                  <p className="text-[10px] font-black text-neutral-300 uppercase tracking-widest border-b pb-2">Valores</p>
+                  <div className="grid grid-cols-2 gap-4">
+                    <input type="number" className="w-full px-5 py-6 rounded-2xl bg-neutral-50 dark:bg-neutral-800 text-2xl font-black text-center" placeholder="Total" value={form.precio_final} onChange={e => setForm({ ...form, precio_final: e.target.value })} />
+                    <input type="number" className="w-full px-5 py-6 rounded-2xl bg-green-50 dark:bg-green-900/20 text-green-600 text-2xl font-black text-center" placeholder="Abono" value={form.abono} onChange={e => setForm({ ...form, abono: e.target.value })} />
+                  </div>
+                </div>
+              </div>
+
+              <button disabled={isSubmitting} className="md:col-span-3 mt-6 py-6 rounded-[2rem] bg-black dark:bg-white text-white dark:text-black font-black uppercase italic tracking-[0.3em] flex items-center justify-center gap-4 active:scale-95 transition-all">
+                {isSubmitting ? <Loader2 className="animate-spin" /> : <><Save className="w-6 h-6" /> {isEditing ? "Guardar Cambios" : "Registrar Servicio"}</>}
+              </button>
+            </form>
+          </div>
         </div>
       )}
 
       {/* Details Modal */}
       {selectedReparacion && !isEditing && (
         <div className="fixed inset-0 z-50 flex justify-end bg-black/70 backdrop-blur-md animate-in fade-in duration-500">
-           <div className="bg-white dark:bg-neutral-900 w-full max-w-xl h-full p-12 overflow-y-auto shadow-2xl animate-in slide-in-from-right-10 duration-700">
-              <button onClick={() => setSelectedReparacion(null)} className="p-4 rounded-full bg-neutral-50 dark:bg-neutral-800 mb-10"><X/></button>
-              
-              <div className="space-y-12">
-                 <div className="flex justify-between items-start">
-                    <div>
-                       <span className="text-[10px] font-black text-amber-500 uppercase tracking-widest">TICKET {selectedReparacion.numero_recibo}</span>
-                       <h3 className="text-4xl font-black uppercase italic tracking-tighter mt-1">{selectedReparacion.marca}</h3>
-                       <p className="text-neutral-500 font-bold">{selectedReparacion.modelo_descripcion || 'Modelo sin especificar'}</p>
-                    </div>
-                    <button onClick={() => startEdit(selectedReparacion)} className="p-4 rounded-2xl bg-neutral-100 dark:bg-neutral-800 text-black dark:text-white hover:scale-110 transition-all"><Edit2/></button>
-                 </div>
+          <div className="bg-white dark:bg-neutral-900 w-full max-w-xl h-full p-12 overflow-y-auto shadow-2xl animate-in slide-in-from-right-10 duration-700">
+            <button onClick={() => setSelectedReparacion(null)} className="p-4 rounded-full bg-neutral-50 dark:bg-neutral-800 mb-10"><X /></button>
 
-                 <div className="grid grid-cols-2 gap-8 bg-neutral-50 dark:bg-neutral-800 p-8 rounded-[2rem]">
-                    <div className="space-y-1"><p className="text-[9px] font-black text-neutral-400 uppercase">Costo Total</p><p className="text-2xl font-black">${selectedReparacion.precio_final}</p></div>
-                    <div className="space-y-1"><p className="text-[9px] font-black text-neutral-400 uppercase text-right">Saldo Pendiente</p><p className="text-2xl font-black text-right text-red-500">${selectedReparacion.saldo_pendiente}</p></div>
-                 </div>
-
-                 <div className="space-y-6">
-                    <p className="text-[10px] font-black uppercase tracking-widest border-b pb-2">Historial y Fechas</p>
-                    <div className="flex justify-between text-xs font-bold">
-                       <span className="text-neutral-400 uppercase">Ingreso:</span>
-                       <span className="text-neutral-900 dark:text-white">{new Date(selectedReparacion.fecha_ingreso).toLocaleDateString()}</span>
-                    </div>
-                    <div className="flex justify-between text-xs font-bold">
-                       <span className="text-neutral-400 uppercase">Compromiso:</span>
-                       <span className={overdueRepairs.some(o => o.id === selectedReparacion.id) ? 'text-red-500' : 'text-neutral-900 dark:text-white'}>
-                          {selectedReparacion.fecha_compromiso ? new Date(selectedReparacion.fecha_compromiso).toLocaleDateString() : 'No establecida'}
-                       </span>
-                    </div>
-                 </div>
-
-                 <div className="space-y-4">
-                    <p className="text-[10px] font-black uppercase tracking-widest border-b pb-2">Estado</p>
-                    <div className="grid grid-cols-2 gap-2">
-                       {['recibido', 'en taller', 'listo', 'garantia', 'entregado'].map(st => (
-                          <button key={st} onClick={() => handleUpdateStatus(selectedReparacion.id, st)} className={`p-4 rounded-2xl text-[9px] font-black uppercase italic tracking-widest ${selectedReparacion.estado === st ? 'bg-black text-white dark:bg-white dark:text-black scale-[1.05]' : 'bg-neutral-50 dark:bg-neutral-800 hover:bg-neutral-100'}`}>{st}</button>
-                       ))}
-                    </div>
-                 </div>
-
-                 <div className="flex gap-4">
-                    <button onClick={() => handlePrint(selectedReparacion)} className="flex-1 py-5 rounded-[2rem] bg-neutral-100 dark:bg-neutral-800 font-black uppercase tracking-[0.2em] text-[10px] flex items-center justify-center gap-2 hover:bg-neutral-200 transition-all"><Printer className="w-4 h-4" /> Comprobante</button>
-                    <button onClick={() => handleDelete(selectedReparacion.id)} className="flex-1 py-5 rounded-[2rem] bg-red-50 text-red-500 dark:bg-red-900/20 dark:text-red-400 font-black uppercase tracking-[0.2em] text-[10px] flex items-center justify-center gap-2 hover:bg-red-500 hover:text-white transition-all"><Trash2 className="w-4 h-4" /> Eliminar</button>
-                 </div>
+            <div className="space-y-12">
+              <div className="flex justify-between items-start">
+                <div>
+                  <span className="text-[10px] font-black text-amber-500 uppercase tracking-widest">TICKET {selectedReparacion!.numero_recibo}</span>
+                  <h3 className="text-4xl font-black uppercase italic tracking-tighter mt-1">{selectedReparacion!.marca}</h3>
+                  <p className="text-neutral-500 font-bold">{selectedReparacion!.modelo_descripcion || 'Modelo sin especificar'}</p>
+                </div>
+                <div className="flex gap-2">
+                  <button onClick={() => startEdit(selectedReparacion!)} className="p-4 rounded-2xl bg-neutral-100 dark:bg-neutral-800 text-black dark:text-white hover:scale-110 transition-all"><Edit2 className="w-5 h-5" /></button>
+                  <button onClick={() => handleDelete(selectedReparacion!.id)} className="p-4 rounded-2xl bg-red-50 dark:bg-red-900/20 text-red-600 hover:scale-110 transition-all"><Trash2 className="w-5 h-5" /></button>
+                </div>
               </div>
-           </div>
+
+              <div className="grid grid-cols-2 gap-8 bg-neutral-50 dark:bg-neutral-800 p-8 rounded-[2rem]">
+                <div className="space-y-1"><p className="text-[9px] font-black text-neutral-400 uppercase">Costo Total</p><p className="text-2xl font-black">${selectedReparacion!.precio_final}</p></div>
+                <div className="space-y-1"><p className="text-[9px] font-black text-neutral-400 uppercase text-right">Saldo Pendiente</p><p className="text-2xl font-black text-right text-red-500">${selectedReparacion!.saldo_pendiente}</p></div>
+              </div>
+
+              <div className="space-y-6">
+                <p className="text-[10px] font-black uppercase tracking-widest border-b pb-2">Detalles del Servicio</p>
+                <div className="space-y-4">
+                  <div>
+                    <p className="text-[9px] font-black text-neutral-400 uppercase">Problema Reportado</p>
+                    <p className="text-sm font-bold text-neutral-700 dark:text-neutral-300 bg-neutral-50 dark:bg-neutral-800/50 p-4 rounded-2xl mt-1">{selectedReparacion!.problema_cliente || 'No especificado'}</p>
+                  </div>
+                  <div>
+                    <p className="text-[9px] font-black text-neutral-400 uppercase">Técnico Responsable</p>
+                    <p className="text-xs font-black text-amber-600 dark:text-amber-400 mt-1 uppercase italic tracking-widest bg-amber-500/10 px-4 py-2 rounded-full inline-block">
+                      {selectedReparacion!.tecnico?.nombre || 'Pendiente de asignar'}
+                    </p>
+                  </div>
+                  <div>
+                    <p className="text-[9px] font-black text-neutral-400 uppercase">Diagnóstico Técnico</p>
+                    <p className="text-sm font-bold text-neutral-700 dark:text-neutral-300 bg-amber-50 dark:bg-amber-900/10 p-4 rounded-2xl mt-1">{selectedReparacion!.diagnostico_tecnico || 'Sin diagnóstico registrado'}</p>
+                  </div>
+                </div>
+
+                <p className="text-[10px] font-black uppercase tracking-widest border-b pb-2">Historial y Fechas</p>
+                <div className="space-y-2">
+                  <div className="flex justify-between text-xs font-bold">
+                    <span className="text-neutral-400 uppercase">Ingreso:</span>
+                    <span className="text-neutral-900 dark:text-white">{new Date(selectedReparacion!.fecha_ingreso).toLocaleDateString()}</span>
+                  </div>
+                  <div className="flex justify-between text-xs font-bold">
+                    <span className="text-neutral-400 uppercase">Compromiso:</span>
+                    <span className={overdueRepairs.some(o => o.id === selectedReparacion!.id) ? 'text-red-500' : 'text-neutral-900 dark:text-white'}>
+                      {selectedReparacion!.fecha_compromiso ? new Date(selectedReparacion!.fecha_compromiso).toLocaleDateString() : 'No establecida'}
+                    </span>
+                  </div>
+                </div>
+              </div>
+
+              <div className="space-y-4">
+                <p className="text-[10px] font-black uppercase tracking-widest border-b pb-2">Estado</p>
+                <div className="grid grid-cols-2 gap-2">
+                  {['en diagnostico', 'en reparacion', 'listo', 'garantia', 'no repara', 'entregado'].map(st => (
+                    <button key={st} onClick={() => handleUpdateStatus(selectedReparacion!.id, st)} className={`p-4 rounded-2xl text-[9px] font-black uppercase italic tracking-widest ${selectedReparacion!.estado === st ? 'bg-black text-white dark:bg-white dark:text-black scale-[1.05]' : 'bg-neutral-50 dark:bg-neutral-800 hover:bg-neutral-100'}`}>{st}</button>
+                  ))}
+                </div>
+              </div>
+
+              <div className="flex gap-4">
+                <button onClick={() => handlePrint(selectedReparacion!)} className="flex-1 py-5 rounded-[2rem] bg-neutral-100 dark:bg-neutral-800 font-black uppercase tracking-[0.2em] text-[10px] flex items-center justify-center gap-2 hover:bg-neutral-200 transition-all"><Printer className="w-4 h-4" /> Comprobante</button>
+                {isDeletingId === selectedReparacion!.id ? (
+                  <div className="flex-1 flex gap-2 animate-in fade-in zoom-in duration-300">
+                    <button onClick={() => handleDelete(selectedReparacion!.id)} className="flex-1 py-5 rounded-[2rem] bg-red-600 text-white font-black uppercase text-[10px] shadow-lg shadow-red-500/30">CONFIRMAR</button>
+                    <button onClick={() => setIsDeletingId(null)} className="px-6 py-5 rounded-[2rem] bg-neutral-100 dark:bg-neutral-800 text-neutral-400"><X className="w-4 h-4" /></button>
+                  </div>
+                ) : (
+                  <button onClick={() => setIsDeletingId(selectedReparacion!.id)} className="flex-1 py-5 rounded-[2rem] bg-red-50 text-red-500 dark:bg-red-900/20 dark:text-red-400 font-black uppercase tracking-[0.2em] text-[10px] flex items-center justify-center gap-2 hover:bg-red-500 hover:text-white transition-all"><Trash2 className="w-4 h-4" /> Eliminar</button>
+                )}
+              </div>
+            </div>
+          </div>
         </div>
       )}
 
       {/* Import Modal */}
       {showImportModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-6 bg-black/90 backdrop-blur-2xl animate-in fade-in duration-500">
-           <div className="bg-white dark:bg-neutral-900 w-full max-w-lg rounded-[3.5rem] p-12 border border-neutral-100 dark:border-neutral-800 shadow-2xl relative text-center">
-              <button onClick={() => { setShowImportModal(false); setImportStatus(null); }} className="absolute top-8 right-8 p-3 rounded-full hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-all"><X /></button>
-              <Upload className="w-16 h-16 mx-auto mb-6 text-neutral-200" />
-              <h2 className="text-3xl font-black italic uppercase tracking-tighter mb-2">Sincronizar Datos</h2>
-              <p className="text-neutral-400 font-bold mb-10 text-sm">Carga tu CSV de Google Sheets para restaurar el historial.</p>
-              
-              <div className="border-4 border-dashed border-neutral-100 dark:border-neutral-800 rounded-[3rem] p-12 relative hover:border-black dark:hover:border-white transition-all cursor-pointer bg-neutral-50/50 dark:bg-neutral-800/30 group mb-6">
-                 <input type="file" accept=".csv" onChange={handleFileUpload} className="absolute inset-0 opacity-0 cursor-pointer" />
-                 <p className="font-black text-xs uppercase tracking-widest text-neutral-400">Elegir Archivo</p>
-              </div>
+          <div className="bg-white dark:bg-neutral-900 w-full max-w-lg rounded-[3.5rem] p-12 border border-neutral-100 dark:border-neutral-800 shadow-2xl relative text-center">
+            <button onClick={() => { setShowImportModal(false); setImportStatus(null); }} className="absolute top-8 right-8 p-3 rounded-full hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-all"><X /></button>
+            <Upload className="w-16 h-16 mx-auto mb-6 text-neutral-200" />
+            <h2 className="text-3xl font-black italic uppercase tracking-tighter mb-2">Sincronizar Datos</h2>
+            <p className="text-neutral-400 font-bold mb-10 text-sm">Carga tu CSV de Google Sheets para restaurar el historial.</p>
 
-              {importStatus && (
-                 <div className={`p-6 rounded-3xl space-y-3 ${importStatus.type === 'success' ? 'bg-green-50 text-green-700' : 'bg-neutral-50 text-neutral-500'}`}>
-                    <div className="flex items-center justify-center gap-3 font-bold text-xs">
-                       {importStatus.type === 'info' && <Loader2 className="w-4 h-4 animate-spin" />}
-                       {importStatus.message}
-                    </div>
-                    {importStatus.progress !== undefined && (
-                       <div className="w-full h-2 bg-neutral-200 dark:bg-neutral-700 rounded-full overflow-hidden">
-                          <div className="h-full bg-black dark:bg-white transition-all duration-700" style={{width: `${importStatus.progress}%`}}></div>
-                       </div>
-                    )}
-                 </div>
-              )}
-           </div>
+            <div className="border-4 border-dashed border-neutral-100 dark:border-neutral-800 rounded-[3rem] p-12 relative hover:border-black dark:hover:border-white transition-all cursor-pointer bg-neutral-50/50 dark:bg-neutral-800/30 group mb-6">
+              <input type="file" accept=".csv" onChange={handleFileUpload} className="absolute inset-0 opacity-0 cursor-pointer" />
+              <p className="font-black text-xs uppercase tracking-widest text-neutral-400">Elegir Archivo</p>
+            </div>
+
+            {importStatus && (
+              <div className={`p-6 rounded-3xl space-y-3 ${importStatus.type === 'success' ? 'bg-green-50 text-green-700' : 'bg-neutral-50 text-neutral-500'}`}>
+                <div className="flex items-center justify-center gap-3 font-bold text-xs">
+                  {importStatus.type === 'info' && <Loader2 className="w-4 h-4 animate-spin" />}
+                  {importStatus.message}
+                </div>
+                {importStatus.progress !== undefined && (
+                  <div className="w-full h-2 bg-neutral-200 dark:bg-neutral-700 rounded-full overflow-hidden">
+                    <div className="h-full bg-black dark:bg-white transition-all duration-700" style={{ width: `${importStatus.progress}%` }}></div>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
         </div>
       )}
 
