@@ -40,6 +40,7 @@ export default function ClientesPage() {
   useEffect(() => {
     // Solo cargamos cuando el usuario esté presente Y la sesión esté sincronizada
     if (user && sessionReady) {
+      console.log("🚀 TRAYENDO DATOS: Sesión verificada en Clientes.");
       fetchInitialData();
     }
   }, [user, sessionReady]);
@@ -239,7 +240,6 @@ export default function ClientesPage() {
                         await supabase.from('reparaciones').update({ estado: 'entregado' }).in('id', readyIds);
                         
                         // 2. Create History Records
-                        const { data: { user } } = await supabase.auth.getUser();
                         const historyEntries = readyIds.map(id => ({
                           reparacion_id: id,
                           usuario_id: user?.id || null,
