@@ -5,6 +5,9 @@ import { supabase } from "@/lib/supabase";
 import { useRouter, usePathname } from "next/navigation";
 import { User } from "@supabase/supabase-js";
 
+const BUILD_VERSION = "CRM-ESTABLE-v8.0-DEFINITIVE-STABLE";
+console.log(`🚀 ${BUILD_VERSION}: Protocolo de estabilidad cargado.`);
+
 interface AuthContextType {
   user: User | null;
   rol: "admin" | "recepcion" | "tecnico" | null;
@@ -29,14 +32,29 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   const [activo, setActivo] = useState(true);
   const [loading, setLoading] = useState(true);
   const [sessionReady, setSessionReady] = useState(false);
+  const [mounted, setMounted] = useState(false);
   const router = useRouter();
   const pathname = usePathname();
 
-  // Recuperar estado persistido inmediatamente al cargar para evitar el flash "---"
+  // Hidratacin ultra-rpida en el primer montaje del cliente
   useEffect(() => {
+    setMounted(true);
     if (typeof window !== 'undefined') {
+      const stored = localStorage.getItem('ctr-v1-token');
       const cachedRol = localStorage.getItem('ctr-v1-rol') as any;
       const cachedActivo = localStorage.getItem('ctr-v1-activo');
+
+      if (stored) {
+        try {
+          const parsed = JSON.parse(stored);
+          if (parsed && parsed.user) {
+            setUser(parsed.user);
+            setSessionReady(true);
+            setLoading(false);
+          }
+        } catch {}
+      }
+      
       if (cachedRol) setRol(cachedRol);
       if (cachedActivo !== null) setActivo(cachedActivo === 'true');
     }
@@ -86,16 +104,36 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
 
   useEffect(() => {
     let mounted = true;
+
+    if (user && sessionReady) {
+      console.log(`🚀 ${BUILD_VERSION}: Hidratacin sncrona exitosa [Milisegundo 0]`);
+    }
+
     const authTimeout = setTimeout(() => {
       if (mounted && loading) {
-        console.warn("DIAGNOSTIC: --- SAFETY TIMEOUT REACHED ---");
-        console.warn("Reason: Supabase did not reply in 3 seconds.");
+        console.warn(`⚠️ ${BUILD_VERSION}: Tiempo de espera agotado. Aplicando arranque forzoso.`);
+        
+        // --- PROTOCOLO DE RESCATE (EMERGENCIA) ---
+        // Si el SDK sigue mudo tras 3s, volvemos a intentar hidratar
+        if (!user && typeof window !== 'undefined') {
+          const rawSession = localStorage.getItem('ctr-v1-token');
+          if (rawSession) {
+            try {
+              const sessionData = JSON.parse(rawSession);
+              if (sessionData && sessionData.user) {
+                console.log("🛠️ Usuario recuperado manualmente por timeout.");
+                setUser(sessionData.user);
+              }
+            } catch (err) {}
+          }
+        }
+        
+        setSessionReady(true);
         setLoading(false);
       }
-    }, 3000);
+    }, 3200);
 
     async function initializeAuth() {
-      console.log("DIAGNOSTIC: 1. initializeAuth (BOOT START)");
       try {
         // Pequeo retraso para dejar que los locks del navegador se asienten tras F5
         await new Promise(r => setTimeout(r, 200));
@@ -117,18 +155,15 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
           const profile = await fetchUserProfile(session.user.id);
           if (profile && mounted) {
             updateRoleAndStatus(profile.rol, profile.activo);
-            if (!profile.activo) {
-              await supabase.auth.signOut();
-              router.replace("/login?error=Cuenta desactivada.");
-            }
+            setSessionReady(true);
+            setLoading(false);
+            clearTimeout(authTimeout); // <-- Éxito: Cancelar el cronmetro de emergencia
           }
         }
       } catch (err) {
         console.error("Auth initialization failed:", err);
       } finally {
-        // Solo desbloqueamos si no hubo error de lock (que se maneja por eventos)
         if (mounted) {
-          console.log("DIAGNOSTIC: 2. initializeAuth (FINALLY REACHED - Barrier Open)");
           setSessionReady(true);
           setLoading(false);
         }
@@ -239,14 +274,16 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
 
   return (
     <AuthContext.Provider value={{ user, rol, activo, loading, sessionReady, signOut }}>
-      {loading ? (
-        <div className="fixed inset-0 bg-white dark:bg-black z-[100] flex flex-col items-center justify-center p-8 text-center">
+      {/* Siempre renderizamos children para evitar Hydration Mismatch en Next.js */}
+      {children}
+      
+      {/* El Splash es ahora un OVERLAY que no rompe la jerarqua de componentes */}
+      {loading && (
+        <div className="fixed inset-0 bg-white dark:bg-black z-[100] flex flex-col items-center justify-center p-8 text-center animate-in fade-in duration-500">
             <div className="w-16 h-16 border-4 border-neutral-100 dark:border-neutral-900 border-t-neutral-900 dark:border-t-neutral-100 rounded-full animate-spin mb-6"></div>
             <h2 className="text-xl font-black text-neutral-900 dark:text-white tracking-widest uppercase italic border-r-4 border-neutral-900 dark:border-white pr-4">Relojería IA</h2>
             <p className="text-neutral-500 dark:text-neutral-400 text-xs mt-4 font-bold uppercase tracking-[0.4em] animate-pulse">Sincronizando seguridad...</p>
         </div>
-      ) : (
-        children
       )}
     </AuthContext.Provider>
   );

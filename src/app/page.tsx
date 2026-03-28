@@ -34,8 +34,7 @@ export default function Dashboard() {
     if (!user) return;
     setLoading(true);
     try {
-      // Aseguramos que la sesin est lista antes de las consultas pesadas
-      await supabase.auth.getSession();
+      // 1. Stock Bajo
 
       // 1. Stock Bajo
       const { data: invAll, error: err1 } = await supabase

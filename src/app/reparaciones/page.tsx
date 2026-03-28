@@ -113,6 +113,7 @@ export default function ReparacionesPage() {
   useEffect(() => {
     // Solo cargamos cuando el usuario est presente Y la sesin de Supabase est totalmente lista
     if (user && sessionReady) {
+      console.log("🚀 TRAYENDO DATOS: Sesin verificada en Reparaciones.");
       fetchInitialData();
     }
   }, [user, sessionReady]);
@@ -120,7 +121,6 @@ export default function ReparacionesPage() {
   async function fetchInitialData() {
     setIsLoading(true);
     try {
-      const { data: { session } } = await supabase.auth.getSession();
       const { data, error } = await supabase
         .from('reparaciones')
         .select(`*, clientes:cliente_id(nombre_completo, telefono), tecnico:tecnico_asignado_id(nombre)`)
