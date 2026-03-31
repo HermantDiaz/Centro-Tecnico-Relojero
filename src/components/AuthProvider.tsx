@@ -5,8 +5,8 @@ import { supabase } from "@/lib/supabase";
 import { useRouter, usePathname } from "next/navigation";
 import { User } from "@supabase/supabase-js";
 
-const BUILD_VERSION = "CRM-ESTABLE-v8.0-DEFINITIVE-STABLE";
-console.log(`🚀 ${BUILD_VERSION}: Protocolo de estabilidad cargado.`);
+const BUILD_VERSION = "CRM-ESTABLE-v10.8-TITANIUM-STABLE";
+console.log(`🚀 ${BUILD_VERSION}: Protocolo de Blindaje de Sesión activo.`);
 
 interface AuthContextType {
   user: User | null;
@@ -14,6 +14,7 @@ interface AuthContextType {
   activo: boolean;
   loading: boolean;
   sessionReady: boolean;
+  lastFocusAt: number;
   signOut: () => Promise<void>;
 }
 
@@ -23,266 +24,193 @@ const AuthContext = createContext<AuthContextType>({
   activo: true,
   loading: true,
   sessionReady: false,
+  lastFocusAt: 0,
   signOut: async () => {},
 });
 
 export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
+  // v10.8: Estado inicial neutral (Evita error de hidratación)
   const [user, setUser] = useState<User | null>(null);
   const [rol, setRol] = useState<"admin" | "recepcion" | "tecnico" | null>(null);
-  const [activo, setActivo] = useState(true);
+  const [activo, setActivo] = useState<boolean>(true);
+
   const [loading, setLoading] = useState(true);
   const [sessionReady, setSessionReady] = useState(false);
-  const [mounted, setMounted] = useState(false);
+  const [lastFocusAt, setLastFocusAt] = useState(0);
+  
   const router = useRouter();
   const pathname = usePathname();
 
-  // Hidratacin ultra-rpida en el primer montaje del cliente
-  useEffect(() => {
-    setMounted(true);
-    if (typeof window !== 'undefined') {
-      const stored = localStorage.getItem('ctr-v1-token');
-      const cachedRol = localStorage.getItem('ctr-v1-rol') as any;
-      const cachedActivo = localStorage.getItem('ctr-v1-activo');
-
-      if (stored) {
-        try {
-          const parsed = JSON.parse(stored);
-          if (parsed && parsed.user) {
-            setUser(parsed.user);
-            setSessionReady(true);
-            setLoading(false);
-          }
-        } catch {}
-      }
-      
-      if (cachedRol) setRol(cachedRol);
-      if (cachedActivo !== null) setActivo(cachedActivo === 'true');
-    }
-  }, []);
-
-  // Funcin para persistir el rol
   const updateRoleAndStatus = (newRol: any, newActivo: boolean) => {
     setRol(newRol);
     setActivo(newActivo);
     if (typeof window !== 'undefined') {
-      if (newRol) localStorage.setItem('ctr-v1-rol', newRol);
-      else localStorage.removeItem('ctr-v1-rol');
-      localStorage.setItem('ctr-v1-activo', String(newActivo));
+      if (newRol) sessionStorage.setItem('ctr-v1-rol', newRol);
+      else sessionStorage.removeItem('ctr-v1-rol');
+      sessionStorage.setItem('ctr-v1-activo', String(newActivo));
     }
   };
 
-  async function fetchUserProfile(userId: string, retries = 5): Promise<any> {
+  async function fetchUserProfile(userId: string, retries = 3): Promise<any> {
     try {
-      // Intentamos recuperar la sesin activa justo antes del fetch para asegurar que el JWT est en los headers
-      const { data: { session: currentSession } } = await supabase.auth.getSession();
-      
       const { data, error } = await supabase
         .from("perfiles")
         .select("rol, activo")
         .eq("id", userId)
         .single();
-      
-      if (error) {
-        // Si es un error de permisos o lock, reintentamos con un refresco de token forzado en el ltimo intento
-        if (error.code === 'PGRST116' || error.message?.includes("Lock broken") || error.message?.includes("JWT")) {
-          throw error;
-        }
-        throw error;
-      }
+      if (error) throw error;
       return data;
     } catch (error: any) {
       if (retries > 0) {
-        const delay = retries === 1 ? 1000 : 300; // Escalado de reintentos
-        await new Promise(r => setTimeout(r, delay));
-        if (retries === 1) await supabase.auth.refreshSession(); // ltimo intento: Forzar refresco
+        await new Promise(r => setTimeout(r, 400));
         return fetchUserProfile(userId, retries - 1);
       }
-      console.error("CRITICAL: Error fetching profile after retries:", error);
       return null;
     }
   }
 
+  // --- EFECTO 1: MONTAJE Y SINCRONIZACIÓN (SOLO CLIENTE) ---
   useEffect(() => {
     let mounted = true;
+    let authTimeout: NodeJS.Timeout;
 
-    if (user && sessionReady) {
-      console.log(`🚀 ${BUILD_VERSION}: Hidratacin sncrona exitosa [Milisegundo 0]`);
-    }
+    const initSesion = async () => {
+      // Failsafe: No dejar la pantalla de carga más de 4s
+      authTimeout = setTimeout(() => { if (mounted) setLoading(false); }, 4000);
 
-    const authTimeout = setTimeout(() => {
-      if (mounted && loading) {
-        console.warn(`⚠️ ${BUILD_VERSION}: Tiempo de espera agotado. Aplicando arranque forzoso.`);
-        
-        // --- PROTOCOLO DE RESCATE (EMERGENCIA) ---
-        // Si el SDK sigue mudo tras 3s, volvemos a intentar hidratar
-        if (!user && typeof window !== 'undefined') {
-          const rawSession = localStorage.getItem('ctr-v1-token');
-          if (rawSession) {
-            try {
-              const sessionData = JSON.parse(rawSession);
-              if (sessionData && sessionData.user) {
-                console.log("🛠️ Usuario recuperado manualmente por timeout.");
-                setUser(sessionData.user);
-              }
-            } catch (err) {}
+      // 1. HIDRATACIÓN GENESIS (Memoria local)
+      const stored = sessionStorage.getItem('ctr-v1-token');
+      const cachedRol = sessionStorage.getItem('ctr-v1-rol') as any;
+      const cachedActivo = sessionStorage.getItem('ctr-v1-activo') !== 'false';
+
+      if (stored) {
+        try {
+          const parsed = JSON.parse(stored);
+          if (parsed && parsed.access_token && parsed.user) {
+            console.log(`🛡️ ${BUILD_VERSION}: Sincronización post-montaje OK.`);
+            setUser(parsed.user);
+            if (cachedRol) setRol(cachedRol);
+            setActivo(cachedActivo);
+
+            // Inyectamos al SDK para que las consultas RLS funcionen
+            await supabase.auth.setSession({
+              access_token: parsed.access_token,
+              refresh_token: parsed.refresh_token
+            });
           }
+        } catch (e) {
+          console.warn("Titan Mount Sync Error", e);
         }
-        
-        setSessionReady(true);
-        setLoading(false);
       }
-    }, 3200);
 
-    async function initializeAuth() {
-      try {
-        // Pequeo retraso para dejar que los locks del navegador se asienten tras F5
-        await new Promise(r => setTimeout(r, 200));
+      // 2. LISTENER ÚNICO DE SUPABASE (Singleton)
+      const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
+        console.log(`🔐 ${BUILD_VERSION}: Auth Event -> ${event}`);
+        if (!mounted) return;
 
-        const { data: { session }, error } = await supabase.auth.getSession();
-        
-        if (error) {
-          if (error.message.includes("Lock broken")) {
-            console.warn("Auth: Lock broken on init, waiting for onAuthStateChange.");
-            // En este caso NO llamamos a setLoading(false) todava, 
-            // dejamos que el listener lo haga
-            return; 
-          }
-          throw error;
-        }
-
-        if (session && mounted) {
+        if (session) {
+          sessionStorage.setItem('ctr-v1-token', JSON.stringify(session));
           setUser(session.user);
-          const profile = await fetchUserProfile(session.user.id);
-          if (profile && mounted) {
-            updateRoleAndStatus(profile.rol, profile.activo);
-            setSessionReady(true);
-            setLoading(false);
-            clearTimeout(authTimeout); // <-- Éxito: Cancelar el cronmetro de emergencia
-          }
-        }
-      } catch (err) {
-        console.error("Auth initialization failed:", err);
-      } finally {
-        if (mounted) {
-          setSessionReady(true);
-          setLoading(false);
-        }
-      }
-    }
-
-    initializeAuth();
-
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
-      console.log(`Auth Event: ${event}`, !!session);
-      if (!mounted) return;
-
-      if (session) {
-        setUser(session.user);
-        
-        // Carga de perfil con reintentos para manejar el Lock del navegador
-        const handleProfile = async () => {
+          
           const profile = await fetchUserProfile(session.user.id);
           if (profile && mounted) {
             updateRoleAndStatus(profile.rol, profile.activo);
             if (!profile.activo) {
               await supabase.auth.signOut();
-              router.replace("/login?error=Cuenta desactivada.");
+              window.location.href = "/login?error=Cuenta desactivada.";
             }
           }
+
           if (mounted) {
             setSessionReady(true);
             setLoading(false);
+            clearTimeout(authTimeout);
           }
-        };
-
-        if (event === 'INITIAL_SESSION') {
-          // No bloqueamos el loading principal si ya tenemos rol cacheado
-          // Pero disparamos la verificacin en segundo plano
-          setTimeout(handleProfile, 10);
         } else {
-          await handleProfile();
-        }
-      } else {
-        // --- LA CLAVE ---
-        // Si no hay sesin en INITIAL_SESSION, no nos rendimos inmediatamente.
-        // Podra ser un retraso del SDK o un lock.
-        if (event === 'INITIAL_SESSION') {
-          console.log("Auth: No session on initial event, checking storage...");
-          const rawToken = localStorage.getItem('ctr-v1-token');
-          if (rawToken) {
-            console.log("Auth: Found token in storage, waiting for secondary sync...");
-            // No hacemos nada, dejamos que initializeAuth o un evento posterior lo maneje
-            return;
+          // Si no hay sesión, limpiamos y marcamos listo
+          if (event === 'SIGNED_OUT' || event === 'INITIAL_SESSION') {
+             console.log(`🔐 ${BUILD_VERSION}: No se detectó sesión activa.`);
+             sessionStorage.removeItem('ctr-v1-token');
+             setUser(null);
+             updateRoleAndStatus(null, true);
+             if (mounted) {
+                setSessionReady(true);
+                setLoading(false);
+                clearTimeout(authTimeout);
+             }
           }
         }
+      });
 
-        // Si realmente no hay sesin (SIGNED_OUT o INITIAL definitivo)
-        setUser(null);
-        updateRoleAndStatus(null, true);
-        if (mounted) setLoading(false);
-        
-        if (pathname !== "/login" && event !== 'INITIAL_SESSION') {
-          router.replace("/login");
+      return () => { subscription.unsubscribe(); };
+    };
+
+    initSesion();
+
+    // 3. HEARTBEAT (Focus de ventana)
+    const handleFocus = async () => {
+      setLastFocusAt(Date.now());
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session && mounted) {
+        const stored = sessionStorage.getItem('ctr-v1-token');
+        if (stored) {
+          try {
+            const parsed = JSON.parse(stored);
+            await supabase.auth.setSession({
+              access_token: parsed.access_token,
+              refresh_token: parsed.refresh_token
+            });
+          } catch {}
         }
       }
-    });
+    };
+    window.addEventListener('focus', handleFocus);
 
     return () => {
       mounted = false;
-      subscription.unsubscribe();
+      window.removeEventListener('focus', handleFocus);
       clearTimeout(authTimeout);
     };
-  }, [router]); // Quitamos pathname de aqu para que no reinicie el listener al navegar
+  }, []);
 
-  // Efecto separado para manejo de rutas
+  // --- EFECTO 2: GUARDIA DE REDIRECCIÓN (SMART GUARD) ---
+  // Este efecto solo se preocupa de DONDE estamos, basándose en QUIEN somos.
   useEffect(() => {
-    if (!loading && !user && pathname !== "/login") {
+    if (loading || !sessionReady) return; // No emitir juicios mientras cargamos
+
+    if (!user && pathname !== "/login") {
+      console.log(`🔐 ${BUILD_VERSION}: SmartGuard -> Redirigiendo a Login.`);
       router.replace("/login");
+    } else if (user && pathname === "/login") {
+      console.log(`🔐 ${BUILD_VERSION}: SmartGuard -> Usuario autenticado, volviendo.`);
+      router.replace("/");
     }
-  }, [loading, user, pathname, router]);
-
-  // Nuevo efecto: Si estamos en /login, NUNCA debemos estar en loading permanentemente
-  useEffect(() => {
-    if (pathname === "/login") {
-      setLoading(false);
-    }
-  }, [pathname]);
+  }, [user, loading, sessionReady, pathname, router]);
 
   const signOut = async () => {
-    // Primero limpiamos localmente para feedback inmediato
     setUser(null);
     updateRoleAndStatus(null, true);
-    localStorage.removeItem('ctr-v1-rol');
-    localStorage.removeItem('ctr-v1-activo');
+    sessionStorage.clear();
     
     try {
-      // Intentamos cerrar sesion en el servidor (no bloqueamos si falla)
-      supabase.auth.signOut().catch(e => console.error("SignOut server error:", e));
+      await supabase.auth.signOut().catch(() => {});
       router.replace("/login");
-      
-      // Failsafe: Hard redirect si router falla
-      setTimeout(() => {
-        if (typeof window !== 'undefined' && window.location.pathname !== "/login") {
-          window.location.href = "/login";
-        }
-      }, 500);
+      setTimeout(() => { if (typeof window !== 'undefined') window.location.href = "/login"; }, 200);
     } catch (err) {
-      console.error("SignOut local error:", err);
       window.location.href = "/login";
     }
   };
 
   return (
-    <AuthContext.Provider value={{ user, rol, activo, loading, sessionReady, signOut }}>
-      {/* Siempre renderizamos children para evitar Hydration Mismatch en Next.js */}
+    <AuthContext.Provider value={{ user, rol, activo, loading, sessionReady, lastFocusAt, signOut }}>
       {children}
-      
-      {/* El Splash es ahora un OVERLAY que no rompe la jerarqua de componentes */}
+
+      {/* Pantalla Splash Sincronizada */}
       {loading && (
-        <div className="fixed inset-0 bg-white dark:bg-black z-[100] flex flex-col items-center justify-center p-8 text-center animate-in fade-in duration-500">
+        <div className="fixed inset-0 bg-white dark:bg-neutral-950 z-[100] flex flex-col items-center justify-center p-8 text-center animate-in fade-in duration-500">
             <div className="w-16 h-16 border-4 border-neutral-100 dark:border-neutral-900 border-t-neutral-900 dark:border-t-neutral-100 rounded-full animate-spin mb-6"></div>
             <h2 className="text-xl font-black text-neutral-900 dark:text-white tracking-widest uppercase italic border-r-4 border-neutral-900 dark:border-white pr-4">Relojería IA</h2>
-            <p className="text-neutral-500 dark:text-neutral-400 text-xs mt-4 font-bold uppercase tracking-[0.4em] animate-pulse">Sincronizando seguridad...</p>
+            <p className="text-neutral-500 dark:text-neutral-400 text-[10px] mt-4 font-bold uppercase tracking-[0.4em] animate-pulse">Protegiendo sistema TITANIUM...</p>
         </div>
       )}
     </AuthContext.Provider>

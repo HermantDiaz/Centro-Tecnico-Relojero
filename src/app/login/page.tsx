@@ -1,9 +1,10 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { supabase } from "@/lib/supabase";
 import { useRouter } from "next/navigation";
 import Image from "next/image";
+import { useAuth } from "@/components/AuthProvider";
 
 export default function Login() {
   const [email, setEmail] = useState("");
@@ -12,6 +13,14 @@ export default function Login() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const router = useRouter();
+  const { user } = useAuth(); // Esperar a que la sesión global esté lista
+
+  // El redireccionamiento es reactivo al estado global para evitar cierres prematuros
+  useEffect(() => {
+    if (user) {
+      router.push("/");
+    }
+  }, [user, router]);
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -39,10 +48,13 @@ export default function Login() {
         ? "Credenciales incorrectas. Verifica tu correo y contraseña." 
         : loginError.message
       );
+      setLoading(false); // Solo liberamos el botón si hay error
     } else {
-      router.push("/");
+      // SI HAY ÉXITO: 
+      // No hacemos router.push manual. Dejamos que el onAuthStateChange del AuthProvider haga su magia,
+      // lea el perfil, asigne el rol, y modifique el context { user }. 
+      // Eso disparará el useEffect de arriba y nos llevará a "/" de forma 100% segura.
     }
-    setLoading(false);
   };
 
   return (
@@ -51,7 +63,7 @@ export default function Login() {
         {/* Branding Superior: Solo Logo */}
         <div className="text-center mb-10">
           <div className="inline-block p-6 bg-white dark:bg-neutral-900 rounded-[2.5rem] shadow-2xl mb-4 border border-neutral-100 dark:border-neutral-800 transform hover:scale-105 transition-transform duration-500">
-             <Image src="/logobuenoVectorizado.svg" alt="CTR Logo" width={80} height={80} className="dark:invert object-contain" />
+             <Image src="/logobuenoVectorizado.svg" alt="CTR Logo" width={80} height={80} style={{ width: '80px', height: '80px' }} className="dark:invert object-contain" priority />
           </div>
           <p className="text-neutral-400 dark:text-neutral-500 text-[10px] font-black uppercase tracking-[0.3em] mt-4">Acceso Seguro</p>
         </div>

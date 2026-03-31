@@ -59,16 +59,17 @@ export default function Inventario() {
     alerta_activa: true
   });
 
-  const { user, rol, sessionReady } = useAuth();
+  const { user, rol, sessionReady, lastFocusAt } = useAuth();
 
   useEffect(() => {
     // Solo cargamos cuando el usuario est presente Y la sesin est totalmente protegida
     if (user && sessionReady) {
       fetchData();
     }
-  }, [filtroCategoria, user, sessionReady]);
+  }, [filtroCategoria, user, sessionReady, lastFocusAt]); // Sincronizado con v8.4 Pulse
 
-  async function fetchData() {
+  async function fetchData(retries = 3) {
+    if (!user) return;
     setLoading(true);
     try {
       // Fetch Categorías
@@ -104,6 +105,12 @@ export default function Inventario() {
       setValuacionTotal(totalCost);
       setVentaPotencial(totalPotential);
     } catch (error: any) {
+      const isLockError = error.message?.includes("Lock broken") || error.name === 'AbortError';
+      if (retries > 0 && isLockError) {
+        console.warn("Inventario: Re-sync detectado, reintentando...", retries);
+        await new Promise(r => setTimeout(r, 600));
+        return fetchData(retries - 1);
+      }
       console.error("Error crítico en fetchData:", error);
     } finally {
       setLoading(false);

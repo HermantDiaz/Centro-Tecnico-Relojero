@@ -29,7 +29,7 @@ export default function RootLayout({
             <main className={`flex-1 overflow-y-auto custom-scrollbar ${isLoginPage ? 'bg-white dark:bg-black p-0' : 'bg-neutral-50 dark:bg-black p-4 md:p-8 pb-24 md:pb-32'}`}>
               {!isLoginPage && (
                 <header className="flex justify-between items-center mb-8 md:hidden">
-                  <Image src="/logobuenoVectorizado.svg" alt="CTR Logo" width={48} height={48} className="dark:invert object-contain" />
+                  <Image src="/logobuenoVectorizado.svg" alt="CTR Logo" width={48} height={48} style={{ width: '48px', height: '48px' }} className="dark:invert object-contain" priority />
                   <button className="p-2 bg-neutral-100 dark:bg-neutral-800 rounded-lg">
                     ☰
                   </button>

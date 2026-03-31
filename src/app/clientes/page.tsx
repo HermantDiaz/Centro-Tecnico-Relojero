@@ -35,17 +35,17 @@ export default function ClientesPage() {
   const [searchTerm, setSearchTerm] = useState("");
   const [selectedCliente, setSelectedCliente] = useState<Cliente | null>(null);
 
-  const { user, sessionReady } = useAuth();
+  const { user, sessionReady, lastFocusAt } = useAuth();
 
   useEffect(() => {
     // Solo cargamos cuando el usuario esté presente Y la sesión esté sincronizada
     if (user && sessionReady) {
-      console.log("🚀 TRAYENDO DATOS: Sesión verificada en Clientes.");
       fetchInitialData();
     }
-  }, [user, sessionReady]);
+  }, [user, sessionReady, lastFocusAt]); // Sincronizado con v8.4 Pulse
 
-  async function fetchInitialData() {
+  async function fetchInitialData(retries = 3) {
+    if (!user) return;
     setIsLoading(true);
     try {
       // Fetch clients and join repairs
@@ -57,6 +57,12 @@ export default function ClientesPage() {
       if (error) throw error;
       setClientes(data || []);
     } catch (e: any) {
+      const isLockError = e.message?.includes("Lock broken") || e.name === 'AbortError';
+      if (retries > 0 && isLockError) {
+        console.warn("Clientes: Re-sync detectado, reintentando...", retries);
+        await new Promise(r => setTimeout(r, 600));
+        return fetchInitialData(retries - 1);
+      }
       console.error("Error fetching clients:", e.message);
     } finally {
       setIsLoading(false);
@@ -187,7 +193,7 @@ export default function ClientesPage() {
                         {c.telefono}
                       </td>
                       <td className="p-8">
-                        <span className="px-3 py-1.5 rounded-full bg-neutral-100 dark:bg-neutral-800 text-[9px] font-black uppercase tracking-widest text-neutral-500">
+                        <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-neutral-100 dark:bg-neutral-800 text-[9px] font-black uppercase tracking-widest text-neutral-500 whitespace-nowrap">
                           {c.reparaciones.length} Relojes
                         </span>
                       </td>

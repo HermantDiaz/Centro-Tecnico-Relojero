@@ -8,7 +8,7 @@ import { useRouter } from "next/navigation";
 import { Clock, CheckCircle2, AlertTriangle, Calendar, Package, ArrowRight, Wrench, Plus } from "lucide-react";
 
 export default function Dashboard() {
-  const { user, rol, sessionReady } = useAuth();
+  const { user, rol, sessionReady, lastFocusAt } = useAuth();
   const [stats, setStats] = useState({
     stockBajo: 0,
     valuacion: 0,
@@ -28,7 +28,7 @@ export default function Dashboard() {
     if (user && sessionReady) {
       fetchDashboardData();
     }
-  }, [user, sessionReady]); // Dependencia de sessionReady para evitar RLS vacío en F5
+  }, [user, sessionReady, lastFocusAt]); // Sincronizado con el Pulso de Vida (v8.4)
 
   async function fetchDashboardData(retries = 5) {
     if (!user) return;
@@ -92,9 +92,10 @@ export default function Dashboard() {
       if (recents) setActividad(recents);
       if (repData) setReparacionesRecientes(repData.slice(0, 5));
     } catch (error: any) {
-      if (retries > 0 && (error.message?.includes("Lock broken") || error.code === 'PGRST301' || error.message?.includes("JWT"))) {
-        console.warn("Dashboard: Retry link due to session hydration...", retries);
-        await new Promise(r => setTimeout(r, 500));
+      const isLockError = error.message?.includes("Lock broken") || error.name === 'AbortError';
+      if (retries > 0 && (isLockError || error.code === 'PGRST301' || error.message?.includes("JWT"))) {
+        console.warn("Dashboard: Re-sync detectado, reintentando...", retries);
+        await new Promise(r => setTimeout(r, 600));
         return fetchDashboardData(retries - 1);
       }
       console.error("Dashboard error:", error);

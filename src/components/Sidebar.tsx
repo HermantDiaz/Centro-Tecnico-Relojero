@@ -41,7 +41,7 @@ export default function Sidebar() {
         <div className="relative group mb-4">
           <div className="absolute -inset-1 bg-gradient-to-r from-neutral-200 to-neutral-50 dark:from-neutral-800 dark:to-black rounded-full blur opacity-25 group-hover:opacity-75 transition duration-1000 group-hover:duration-200"></div>
           <div className="relative p-3 bg-white dark:bg-neutral-900 rounded-full border border-neutral-100 dark:border-neutral-800 shadow-xl">
-             <Image src="/logobuenoVectorizado.svg" alt="CTR Logo" width={48} height={48} className="dark:invert object-contain" />
+             <Image src="/logobuenoVectorizado.svg" alt="CTR Logo" width={48} height={48} style={{ width: '48px', height: '48px' }} className="dark:invert object-contain" priority />
           </div>
         </div>
         <div className="text-center">

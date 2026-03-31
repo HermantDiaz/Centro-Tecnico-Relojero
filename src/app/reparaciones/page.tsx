@@ -64,7 +64,7 @@ interface InsumoReparacion {
 }
 
 export default function ReparacionesPage() {
-  const { user, sessionReady } = useAuth();
+  const { user, sessionReady, lastFocusAt } = useAuth();
   const [reparaciones, setReparaciones] = useState<Reparacion[]>([]);
   const [perfiles, setPerfiles] = useState<any[]>([]);
   const [allClientes, setAllClientes] = useState<any[]>([]);
@@ -113,12 +113,12 @@ export default function ReparacionesPage() {
   useEffect(() => {
     // Solo cargamos cuando el usuario est presente Y la sesin de Supabase est totalmente lista
     if (user && sessionReady) {
-      console.log("🚀 TRAYENDO DATOS: Sesin verificada en Reparaciones.");
       fetchInitialData();
     }
-  }, [user, sessionReady]);
+  }, [user, sessionReady, lastFocusAt]); // Sincronizado con v8.4 Pulse
 
-  async function fetchInitialData() {
+  async function fetchInitialData(retries = 3) {
+    if (!user) return;
     setIsLoading(true);
     try {
       const { data, error } = await supabase
@@ -162,6 +162,12 @@ export default function ReparacionesPage() {
         setShowAddModal(true);
       }
      } catch (e: any) {
+      const isLockError = e.message?.includes("Lock broken") || e.name === 'AbortError';
+      if (retries > 0 && isLockError) {
+        console.warn("Reparaciones: Re-sync detectado, reintentando...", retries);
+        await new Promise(r => setTimeout(r, 600));
+        return fetchInitialData(retries - 1);
+      }
       console.error("Fetch error:", e.message);
     } finally {
       setIsLoading(false);

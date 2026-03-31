@@ -3,13 +3,15 @@ import { createClient } from '@supabase/supabase-js';
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
 const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
 
+// Protocolo RAW-SYNC: Desactivamos el almacenamiento del SDK por completo.
+// Al usar 'undefined', el SDK no intentar acceder a Web Locks ni Storage.
+// La persistencia la gestionaremos nosotros manualmente en AuthProvider.tsx.
 export const supabase = createClient(supabaseUrl, supabaseKey, {
   auth: {
-    persistSession: true,
+    persistSession: false, // Desactivar la persistencia automtica por seguridad y locks
     autoRefreshToken: true,
     detectSessionInUrl: true,
-    storageKey: 'ctr-v1-token',
-    // @ts-ignore - Esta propiedad existe en v2.39+ para prevenir bloqueos en F5
+    // @ts-ignore
     lockRefreshSession: false,
   }
 });
