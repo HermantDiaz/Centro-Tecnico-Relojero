@@ -62,11 +62,11 @@ export default function Inventario() {
   const { user, rol, sessionReady, lastFocusAt } = useAuth();
 
   useEffect(() => {
-    // Solo cargamos cuando el usuario est presente Y la sesin est totalmente protegida
-    if (user && sessionReady) {
+    // v10.8.5: Se utiliza user?.id como dependencia para evitar disparos por refresco de token.
+    if (user?.id && sessionReady) {
       fetchData();
     }
-  }, [filtroCategoria, user, sessionReady, lastFocusAt]); // Sincronizado con v8.4 Pulse
+  }, [filtroCategoria, user?.id, sessionReady]); // Sincronización estable por ID
 
   async function fetchData(retries = 3) {
     if (!user) return;
@@ -105,10 +105,15 @@ export default function Inventario() {
       setValuacionTotal(totalCost);
       setVentaPotencial(totalPotential);
     } catch (error: any) {
-      const isLockError = error.message?.includes("Lock broken") || error.name === 'AbortError';
-      if (retries > 0 && isLockError) {
-        console.warn("Inventario: Re-sync detectado, reintentando...", retries);
-        await new Promise(r => setTimeout(r, 600));
+      const isTransient = 
+        error.name === 'AbortError' || 
+        error.message?.includes("Lock broken") || 
+        error.message?.includes("fetch") ||
+        error.code === 'PGRST301';
+
+      if (retries > 0 && isTransient) {
+        console.warn(`🔄 Inventario (v10.8.12): Re-sync detectado, reintentando...`, retries);
+        await new Promise(r => setTimeout(r, 800));
         return fetchData(retries - 1);
       }
       console.error("Error crítico en fetchData:", error);

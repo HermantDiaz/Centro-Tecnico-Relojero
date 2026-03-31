@@ -111,11 +111,11 @@ export default function ReparacionesPage() {
   });
 
   useEffect(() => {
-    // Solo cargamos cuando el usuario est presente Y la sesin de Supabase est totalmente lista
-    if (user && sessionReady) {
+    // v10.8.5: Se utiliza user?.id como dependencia para evitar disparos por refresco de token.
+    if (user?.id && sessionReady) {
       fetchInitialData();
     }
-  }, [user, sessionReady, lastFocusAt]); // Sincronizado con v8.4 Pulse
+  }, [user?.id, sessionReady]); // Sincronización estable por ID
 
   async function fetchInitialData(retries = 3) {
     if (!user) return;
@@ -162,13 +162,18 @@ export default function ReparacionesPage() {
         setShowAddModal(true);
       }
      } catch (e: any) {
-      const isLockError = e.message?.includes("Lock broken") || e.name === 'AbortError';
-      if (retries > 0 && isLockError) {
-        console.warn("Reparaciones: Re-sync detectado, reintentando...", retries);
-        await new Promise(r => setTimeout(r, 600));
+      const isTransient = 
+        e.name === 'AbortError' || 
+        e.message?.includes("Lock broken") || 
+        e.message?.includes("fetch") ||
+        e.code === 'PGRST301';
+
+      if (retries > 0 && isTransient) {
+        console.warn(`🔄 Reparaciones (v10.8.12): Re-sync detectado, reintentando...`, retries);
+        await new Promise(r => setTimeout(r, 800));
         return fetchInitialData(retries - 1);
       }
-      console.error("Fetch error:", e.message);
+      console.error("Error crítico en fetchData (Reparaciones):", e);
     } finally {
       setIsLoading(false);
     }
@@ -190,8 +195,8 @@ export default function ReparacionesPage() {
         });
         setWorkloadStats(Object.entries(counts).map(([name, count]) => ({ name, count })));
       }
-    } catch (e) {
-      console.error("Error Workload:", e);
+    } finally {
+      setIsLoading(false);
     }
   }
 

@@ -38,11 +38,11 @@ export default function ClientesPage() {
   const { user, sessionReady, lastFocusAt } = useAuth();
 
   useEffect(() => {
-    // Solo cargamos cuando el usuario esté presente Y la sesión esté sincronizada
-    if (user && sessionReady) {
+    // v10.8.5: Se utiliza user?.id como dependencia para evitar disparos por refresco de token.
+    if (user?.id && sessionReady) {
       fetchInitialData();
     }
-  }, [user, sessionReady, lastFocusAt]); // Sincronizado con v8.4 Pulse
+  }, [user?.id, sessionReady]); // Sincronización estable por ID
 
   async function fetchInitialData(retries = 3) {
     if (!user) return;
@@ -57,13 +57,18 @@ export default function ClientesPage() {
       if (error) throw error;
       setClientes(data || []);
     } catch (e: any) {
-      const isLockError = e.message?.includes("Lock broken") || e.name === 'AbortError';
-      if (retries > 0 && isLockError) {
-        console.warn("Clientes: Re-sync detectado, reintentando...", retries);
-        await new Promise(r => setTimeout(r, 600));
+      const isTransient = 
+        e.name === 'AbortError' || 
+        e.message?.includes("Lock broken") || 
+        e.message?.includes("fetch") ||
+        e.code === 'PGRST301';
+
+      if (retries > 0 && isTransient) {
+        console.warn(`🔄 Clientes (v10.8.12): Re-sync detectado, reintentando...`, retries);
+        await new Promise(r => setTimeout(r, 800));
         return fetchInitialData(retries - 1);
       }
-      console.error("Error fetching clients:", e.message);
+      console.error("Error crítico en fetchClientes (Clientes):", e);
     } finally {
       setIsLoading(false);
     }

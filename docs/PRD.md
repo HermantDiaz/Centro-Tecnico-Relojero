@@ -1,6 +1,6 @@
 # ⌚ PRD: Sistema Administrativo RELOJERÍA IA
 
-**Estado:** Versión 1.1 (Modernizada)  
+**Estado:** Versión 1.2 (Estabilizada & Profesionalizada)  
 **Documento de Referencia:** [Matriz de Trazabilidad (RTM)](file:///d:/Proyecto%20IA/RELOJERIA%20IA/docs/RTM.md)
 
 ---
@@ -26,6 +26,12 @@ Digitalizar y automatizar la gestión operativa de CTR Relojería, resolviendo l
 | **REQ-FUN-003** | Control de Stock | Alertas visuales automáticas cuando el stock es ≤ stock_minimo. | Todos | Alta | Badge "REABASTECER" visible; cálculo automático en el dashboard. |
 | **REQ-FUN-004** | Valoración de Activos | Cálculo automático del valor de compra y venta total del stock. | Admin | Media | Suma total visible en la cabecera del inventario y dashboard administrativo. |
 | **REQ-FUN-005** | Gestión de Equipo | Administración de perfiles de usuario y estados de cuenta. | Admin | Alta | El Admin puede activar/desactivar usuarios; no puede desactivarse a sí mismo. |
+| **REQ-FUN-006** | Monitoreo de Carga | Visualización de reparaciones pendientes por técnico para balance de taller. | Admin | Media | Dashboard de carga visible en el módulo de reparaciones con conteo dinámico. |
+| **REQ-FUN-007** | Historial de Eventos | Registro de auditoría para cada cambio de estado o nota en una reparación. | Todos | Alta | Botón de "Historial" que despliega un modal con la traza de eventos y autor. |
+| **REQ-FUN-008** | Integración de Insumos | Capacidad de descontar repuestos del inventario al aplicarlos a una reparación. | Técnico, Admin | Alta | Selección de insumos desde el inventario; actualización automática de stock al vincular. |
+| **REQ-FUN-009** | Gestión de Garantías | Identificación automática de re-ingresos para control de calidad. | Todos | Alta | Campo "Veces en Garantía" visible; alertas si el ticket es reincidente. |
+| **REQ-FUN-010** | Cierre de Caja Diario | Proceso mandatorio de arqueo y cierre al finalizar el día operativo. | Admin, Recepción | Crítica | El sistema no permite iniciar nueva jornada sin realizar el cierre anterior. |
+| **REQ-FUN-011** | Registro Transaccional | Categorización de Ingresos y Egresos (Insumos, Gastos, Ventas). | Admin, Recepción | Alta | Trazabilidad de cada dólar que entra o sale con causa y usuario responsable. |
 
 ### 3.2. Requerimientos No Funcionales (NFC)
 | ID | Nombre | Descripción | Actores | Prioridad | Criterios de Aceptación |
@@ -34,6 +40,7 @@ Digitalizar y automatizar la gestión operativa de CTR Relojería, resolviendo l
 | **REQ-NFC-002** | Modo Oscuro Dinámico | Soporte automático para temas claros y oscuros (System Preference). | Todos | Media | Cambio de colores inmediato sin recarga de página; scrollbars personalizados. |
 | **REQ-NFC-003** | Estética Premium | Uso de micro-animaciones y efectos de "Glassmorphism". | Todos | Media | Transiciones suaves al navegar y hover en tarjetas de estadísticas. |
 | **REQ-NFC-004** | Tiempo de Respuesta | Carga inicial y navegación fluida. | Todos | Alta | Pantalla de carga (Splash) con branding; navegación interna < 200ms. |
+| **REQ-NFC-005** | Estabilidad de Hidratación | Prevención de errores de renderizado entre servidor y cliente (SSR/CSR). | Sistema | Crítica | Uso mandatorio de `mounted guards` en componentes interactivos complejos. |
 
 ### 3.3. Requerimientos de Sistema (SYS)
 | ID | Nombre | Descripción | Actores | Prioridad | Criterios de Aceptación |
@@ -46,6 +53,8 @@ Digitalizar y automatizar la gestión operativa de CTR Relojería, resolviendo l
 | :--- | :--- | :---: | :--- | :---: | :--- |
 | **REQ-USR-001** | Privacidad Financiera | Restricción de datos monetarios sensibles a no-admins. | Técnico, Recepcionista | Crítica | Gráficos de ingresos y deudas invisibles para roles operativos. |
 | **REQ-USR-002** | Panel Operativo | Interfaz simplificada para técnicos enfocada en taller. | Técnico | Media | Botones de creación/eliminación de productos ocultos para el técnico. |
+| **REQ-USR-003** | Acciones Masivas | Selección y procesamiento múltiple de registros en tablas. | Admin, Recepción | Media | Capacidad de eliminar o cambiar estados a múltiples reparaciones simultáneamente. |
+| **REQ-USR-004** | Ficha de Perfil de Cliente | Vista consolidada de historial y balance desde el directorio. | Todos | Alta | Modal detalle con todas las reparaciones pasadas y saldo total adeudado. |
 
 ### 3.5. Requerimientos de Dominio (DOM)
 | ID | Nombre | Descripción | Actores | Prioridad | Criterios de Aceptación |

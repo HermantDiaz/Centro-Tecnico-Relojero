@@ -24,7 +24,12 @@ Actúa como la "fuente de verdad" para la seguridad.
 ### 2. Sidebar Recolector (`src/components/Sidebar.tsx`)
 Genera la navegación dinámicamente:
 - Filtra los elementos del menú basándose en el array `roles` definido para cada ruta.
-- Ejemplo: `/finanzas` solo aparece si `rol === 'admin'`.
+- Implementa un **Hydration Guard** para evitar parpadeos de UI y errores de SSR.
+
+### 3. Hydration & Stability Pattern
+Para evitar errores de hidratación y asegurar que el código dependiente del navegador no se ejecute prematuramente en el servidor:
+- **Mounted Guard**: Se usa un estado `mounted` en `useEffect` para condicionar el renderizado de componentes interactivos.
+- **Session Pulse**: El sistema detecta el foco de la ventana (`window.onfocus`) y sincroniza los datos automáticamente para prevenir sesiones inactivas "fantasma".
 
 ## 🔐 Flujo de Seguridad (RBAC)
 
@@ -48,6 +53,7 @@ src/
 └── lib/            # Configuración de clientes (Supabase)
 ```
 
-## 📈 Patrones de Diseño
+## 📉 Patrones de Diseño
 - **Client-Side Rendering (CSR):** La mayoría de las páginas usan `"use client"` para permitir interacciones rápidas y estados de carga fluidos.
 - **Atomic Design (Simplificado):** Los componentes se agrupan por su función (UI, Auth, Layout).
+- **Integridad Transaccional**: Los campos como `saldo_pendiente` se calculan en el cliente y se validan en el servidor para asegurar que nunca existan descuadres financieros.

@@ -24,33 +24,34 @@ export default function Dashboard() {
   const router = useRouter();
 
   useEffect(() => {
-    // Solo cargamos cuando el usuario esté presente Y la sesión esté totalmente lista
-    if (user && sessionReady) {
+    // v10.8.5: Se utiliza user?.id como dependencia para evitar disparos por refresco de token.
+    if (user?.id && sessionReady) {
       fetchDashboardData();
     }
-  }, [user, sessionReady, lastFocusAt]); // Sincronizado con el Pulso de Vida (v8.4)
+  }, [user?.id, sessionReady]); // Sincronización estable por ID
 
   async function fetchDashboardData(retries = 5) {
     if (!user) return;
     setLoading(true);
     try {
       // 1. Stock Bajo
-
-      // 1. Stock Bajo
       const { data: invAll, error: err1 } = await supabase
         .from("inventario")
         .select("stock_actual, stock_minimo");
-      
       if (err1) throw err1;
-      const stockBajoCount = invAll?.filter(p => p.stock_minimo !== -1 && p.stock_actual <= p.stock_minimo).length || 0;
+      
+      const stockBajoCount = (invAll || []).filter(p => 
+        (p.stock_minimo ?? -1) !== -1 && 
+        (p.stock_actual || 0) <= (p.stock_minimo || 0)
+      ).length || 0;
       
       // 2. Valuacion
       const { data: invData, error: err2 } = await supabase
         .from("inventario")
         .select("precio_compra, stock_actual");
-      
       if (err2) throw err2;
-      const totalValuacion = invData?.reduce((acc: number, curr: any) => 
+      
+      const totalValuacion = (invData || []).reduce((acc: number, curr: any) => 
         acc + ((curr.precio_compra || 0) * (curr.stock_actual || 0)), 0) || 0;
   
       // 3. Actividad
@@ -64,15 +65,15 @@ export default function Dashboard() {
       // 4. Reparaciones Activas
       const { data: repData, error: err4 } = await supabase
         .from("reparaciones")
-        .select("id, estado, fecha_compromiso, marca, modelo_descripcion, clientes:cliente_id(nombre_completo)")
+        .select("id, estado, fecha_compromiso, marca, modelo_descripcion, problema_cliente, fecha_ingreso, clientes:cliente_id(nombre_completo)")
         .neq("estado", "entregado")
         .order("created_at", { ascending: false });
-
       if (err4) throw err4;
 
       const now = new Date();
-      const atrasadas = repData?.filter(r => r.fecha_compromiso && new Date(r.fecha_compromiso) < now).length || 0;
-      const proximas = repData?.filter(r => {
+      const safeRepData = repData || [];
+      const atrasadas = safeRepData.filter(r => r.fecha_compromiso && new Date(r.fecha_compromiso) < now).length || 0;
+      const proximas = safeRepData.filter(r => {
         if (!r.fecha_compromiso) return false;
         const diff = new Date(r.fecha_compromiso).getTime() - now.getTime();
         const days = diff / (1000 * 60 * 60 * 24);
@@ -82,23 +83,23 @@ export default function Dashboard() {
       setStats({
         stockBajo: stockBajoCount,
         valuacion: totalValuacion,
-        reparacionesActivas: repData?.length || 0,
+        reparacionesActivas: safeRepData.length,
         reparacionesAtrasadas: atrasadas,
         reparacionesProximas: proximas,
         ingresosMes: 0,
         flujoCaja: 0
       });
-  
+
       if (recents) setActividad(recents);
-      if (repData) setReparacionesRecientes(repData.slice(0, 5));
+      setReparacionesRecientes(safeRepData.slice(0, 5));
+  
     } catch (error: any) {
-      const isLockError = error.message?.includes("Lock broken") || error.name === 'AbortError';
-      if (retries > 0 && (isLockError || error.code === 'PGRST301' || error.message?.includes("JWT"))) {
-        console.warn("Dashboard: Re-sync detectado, reintentando...", retries);
-        await new Promise(r => setTimeout(r, 600));
+      if (retries > 0) {
+        console.warn(`🔄 Dashboard (v10.8.18): Reintentando sincronización segura... (${retries})`);
+        await new Promise(r => setTimeout(r, 1500));
         return fetchDashboardData(retries - 1);
       }
-      console.error("Dashboard error:", error);
+      console.error("Dashboard Final Critical Error:", error.message || error);
     } finally {
       setLoading(false);
     }

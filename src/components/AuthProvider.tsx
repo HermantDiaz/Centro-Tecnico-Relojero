@@ -5,8 +5,8 @@ import { supabase } from "@/lib/supabase";
 import { useRouter, usePathname } from "next/navigation";
 import { User } from "@supabase/supabase-js";
 
-const BUILD_VERSION = "CRM-ESTABLE-v10.8-TITANIUM-STABLE";
-console.log(`🚀 ${BUILD_VERSION}: Protocolo de Blindaje de Sesión activo.`);
+const BUILD_VERSION = "CRM-ESTABLE-v10.8.11-TITANIUM-SINGLETON";
+console.log(`🚀 ${BUILD_VERSION}: Protocolo de Escudo Singleton activo.`);
 
 interface AuthContextType {
   user: User | null;
@@ -14,6 +14,7 @@ interface AuthContextType {
   activo: boolean;
   loading: boolean;
   sessionReady: boolean;
+  isGracePeriod: boolean;
   lastFocusAt: number;
   signOut: () => Promise<void>;
 }
@@ -24,20 +25,22 @@ const AuthContext = createContext<AuthContextType>({
   activo: true,
   loading: true,
   sessionReady: false,
+  isGracePeriod: false,
   lastFocusAt: 0,
   signOut: async () => {},
 });
 
 export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
-  // v10.8: Estado inicial neutral (Evita error de hidratación)
   const [user, setUser] = useState<User | null>(null);
   const [rol, setRol] = useState<"admin" | "recepcion" | "tecnico" | null>(null);
   const [activo, setActivo] = useState<boolean>(true);
 
   const [loading, setLoading] = useState(true);
   const [sessionReady, setSessionReady] = useState(false);
+  const [isGracePeriod, setIsGracePeriod] = useState(false);
   const [lastFocusAt, setLastFocusAt] = useState(0);
   
+  const subRef = useRef<any>(null); // Singleton Ref
   const router = useRouter();
   const pathname = usePathname();
 
@@ -69,99 +72,95 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
     }
   }
 
-  // --- EFECTO 1: MONTAJE Y SINCRONIZACIÓN (SOLO CLIENTE) ---
   useEffect(() => {
     let mounted = true;
     let authTimeout: NodeJS.Timeout;
+    let graceTimeout: NodeJS.Timeout;
+
+    // v10.8.11: ESCUDO SINGLETON
+    // Evitamos crear múltiples suscripciones duplicadas en modo estricto.
+    if (subRef.current) {
+        subRef.current.unsubscribe();
+        subRef.current = null;
+    }
 
     const initSesion = async () => {
-      // Failsafe: No dejar la pantalla de carga más de 4s
       authTimeout = setTimeout(() => { if (mounted) setLoading(false); }, 4000);
 
-      // 1. HIDRATACIÓN GENESIS (Memoria local)
-      const stored = sessionStorage.getItem('ctr-v1-token');
-      const cachedRol = sessionStorage.getItem('ctr-v1-rol') as any;
-      const cachedActivo = sessionStorage.getItem('ctr-v1-activo') !== 'false';
-
-      if (stored) {
-        try {
-          const parsed = JSON.parse(stored);
-          if (parsed && parsed.access_token && parsed.user) {
-            console.log(`🛡️ ${BUILD_VERSION}: Sincronización post-montaje OK.`);
-            setUser(parsed.user);
-            if (cachedRol) setRol(cachedRol);
-            setActivo(cachedActivo);
-
-            // Inyectamos al SDK para que las consultas RLS funcionen
-            await supabase.auth.setSession({
-              access_token: parsed.access_token,
-              refresh_token: parsed.refresh_token
-            });
-          }
-        } catch (e) {
-          console.warn("Titan Mount Sync Error", e);
-        }
-      }
-
-      // 2. LISTENER ÚNICO DE SUPABASE (Singleton)
       const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
-        console.log(`🔐 ${BUILD_VERSION}: Auth Event -> ${event}`);
-        if (!mounted) return;
+        try {
+          console.log(`🔐 ${BUILD_VERSION}: Auth Event -> ${event}`);
+          if (!mounted) return;
 
-        if (session) {
-          sessionStorage.setItem('ctr-v1-token', JSON.stringify(session));
-          setUser(session.user);
-          
-          const profile = await fetchUserProfile(session.user.id);
-          if (profile && mounted) {
-            updateRoleAndStatus(profile.rol, profile.activo);
-            if (!profile.activo) {
-              await supabase.auth.signOut();
-              window.location.href = "/login?error=Cuenta desactivada.";
+          if (session) {
+            setUser(session.user);
+            setIsGracePeriod(false); 
+            
+            // Perfil paralelo (No bloquea la entrada al sistema)
+            fetchUserProfile(session.user.id).then(profile => {
+                if (profile && mounted) {
+                    updateRoleAndStatus(profile.rol, profile.activo);
+                    if (!profile.activo) {
+                        supabase.auth.signOut();
+                        window.location.href = "/login?error=Cuenta desactivada.";
+                    }
+                }
+            });
+
+            if (mounted) {
+              setSessionReady(true);
+              setLoading(false);
+              clearTimeout(authTimeout);
+            }
+          } else {
+            if (event === 'INITIAL_SESSION') {
+               console.log(`⏳ ${BUILD_VERSION}: Periodo de Gracia Activo...`);
+               setIsGracePeriod(true);
+               graceTimeout = setTimeout(() => {
+                 if (mounted && !user) {
+                   console.log(`🚪 ${BUILD_VERSION}: Fin de Gracia. Login.`);
+                   setIsGracePeriod(false);
+                   setSessionReady(true);
+                   setLoading(false);
+                   clearTimeout(authTimeout);
+                 }
+               }, 2500);
+            } else if (event === 'SIGNED_OUT') {
+               setUser(null);
+               updateRoleAndStatus(null, true);
+               if (mounted) {
+                  setSessionReady(true);
+                  setLoading(false);
+                  clearTimeout(authTimeout);
+               }
             }
           }
-
-          if (mounted) {
-            setSessionReady(true);
-            setLoading(false);
-            clearTimeout(authTimeout);
-          }
-        } else {
-          // Si no hay sesión, limpiamos y marcamos listo
-          if (event === 'SIGNED_OUT' || event === 'INITIAL_SESSION') {
-             console.log(`🔐 ${BUILD_VERSION}: No se detectó sesión activa.`);
-             sessionStorage.removeItem('ctr-v1-token');
-             setUser(null);
-             updateRoleAndStatus(null, true);
-             if (mounted) {
+        } catch (err: any) {
+          if (err.name === 'AbortError' || err.message?.includes("Lock broken")) {
+            console.warn(`🛡️ ${BUILD_VERSION}: Colisión de lock detectada y neutralizada.`);
+            if (mounted) {
                 setSessionReady(true);
                 setLoading(false);
                 clearTimeout(authTimeout);
-             }
+            }
+          } else {
+            console.error("Auth Listener Error:", err);
           }
         }
       });
 
-      return () => { subscription.unsubscribe(); };
+      subRef.current = subscription;
     };
 
     initSesion();
 
-    // 3. HEARTBEAT (Focus de ventana)
     const handleFocus = async () => {
+      if (!mounted) return;
       setLastFocusAt(Date.now());
-      const { data: { session } } = await supabase.auth.getSession();
-      if (!session && mounted) {
-        const stored = sessionStorage.getItem('ctr-v1-token');
-        if (stored) {
-          try {
-            const parsed = JSON.parse(stored);
-            await supabase.auth.setSession({
-              access_token: parsed.access_token,
-              refresh_token: parsed.refresh_token
-            });
-          } catch {}
-        }
+      try {
+        await supabase.auth.getSession();
+      } catch (err: any) {
+        // Silenciamos AbortError
       }
     };
     window.addEventListener('focus', handleFocus);
@@ -170,13 +169,16 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
       mounted = false;
       window.removeEventListener('focus', handleFocus);
       clearTimeout(authTimeout);
+      clearTimeout(graceTimeout);
+      if (subRef.current) {
+          subRef.current.unsubscribe();
+          subRef.current = null;
+      }
     };
   }, []);
 
-  // --- EFECTO 2: GUARDIA DE REDIRECCIÓN (SMART GUARD) ---
-  // Este efecto solo se preocupa de DONDE estamos, basándose en QUIEN somos.
   useEffect(() => {
-    if (loading || !sessionReady) return; // No emitir juicios mientras cargamos
+    if (loading || !sessionReady || isGracePeriod) return;
 
     if (!user && pathname !== "/login") {
       console.log(`🔐 ${BUILD_VERSION}: SmartGuard -> Redirigiendo a Login.`);
@@ -185,13 +187,12 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
       console.log(`🔐 ${BUILD_VERSION}: SmartGuard -> Usuario autenticado, volviendo.`);
       router.replace("/");
     }
-  }, [user, loading, sessionReady, pathname, router]);
+  }, [user, loading, sessionReady, isGracePeriod, pathname, router]);
 
   const signOut = async () => {
     setUser(null);
     updateRoleAndStatus(null, true);
     sessionStorage.clear();
-    
     try {
       await supabase.auth.signOut().catch(() => {});
       router.replace("/login");
@@ -202,10 +203,8 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   };
 
   return (
-    <AuthContext.Provider value={{ user, rol, activo, loading, sessionReady, lastFocusAt, signOut }}>
+    <AuthContext.Provider value={{ user, rol, activo, loading, sessionReady, isGracePeriod, lastFocusAt, signOut }}>
       {children}
-
-      {/* Pantalla Splash Sincronizada */}
       {loading && (
         <div className="fixed inset-0 bg-white dark:bg-neutral-950 z-[100] flex flex-col items-center justify-center p-8 text-center animate-in fade-in duration-500">
             <div className="w-16 h-16 border-4 border-neutral-100 dark:border-neutral-900 border-t-neutral-900 dark:border-t-neutral-100 rounded-full animate-spin mb-6"></div>
