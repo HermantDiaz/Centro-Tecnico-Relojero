@@ -3,6 +3,8 @@
 import { useState, useEffect, useMemo } from "react";
 import { supabase } from "@/lib/supabase";
 import { useAuth } from "@/components/AuthProvider";
+import { useCaja } from "@/hooks/useCaja";
+import ComprobantePago from "@/components/caja/ComprobantePago";
 import {
   Plus, Upload, Search, Filter, Clock, CheckCircle2, AlertCircle, Wrench,
   User, Phone, Calendar, DollarSign, ArrowRight, MoreVertical, X, Loader2, AlertTriangle, Printer, Edit2, ChevronRight, Save, Trash2, CheckSquare
@@ -64,8 +66,12 @@ interface InsumoReparacion {
 }
 
 export default function ReparacionesPage() {
-  const { user, sessionReady, lastFocusAt } = useAuth();
+  const { user, sessionReady, rol } = useAuth();
+  const { session: cajaSession, addMovimiento } = useCaja();
+  
   const [reparaciones, setReparaciones] = useState<Reparacion[]>([]);
+  const [lastMovementData, setLastMovementData] = useState<any | null>(null);
+  const [metodoPagoAbono, setMetodoPagoAbono] = useState<any>("Efectivo");
   const [perfiles, setPerfiles] = useState<any[]>([]);
   const [allClientes, setAllClientes] = useState<any[]>([]);
   const [workloadStats, setWorkloadStats] = useState<any[]>([]);
@@ -152,7 +158,36 @@ export default function ReparacionesPage() {
       // Handle query param for pre-filling
       const urlParams = new URLSearchParams(window.location.search);
       const clienteNome = urlParams.get('cliente');
-      if (clienteNome) {
+      const editId = urlParams.get('edit_id');
+
+      if (editId) {
+        const repToEdit = (data || []).find((r: any) => r.id === editId);
+        if (repToEdit) {
+            setForm({
+              numero_recibo: repToEdit.numero_recibo,
+              nombre_cliente: repToEdit.clientes?.nombre_completo || "",
+              telefono_cliente: repToEdit.clientes?.telefono || "",
+              tipo_reloj: repToEdit.tipo_reloj || "Mecánico",
+              marca: repToEdit.marca || "",
+              modelo: repToEdit.modelo_descripcion || "",
+              problema: repToEdit.problema_cliente || "",
+              diagnostico: repToEdit.diagnostico_tecnico || "",
+              precio_final: String(repToEdit.precio_final),
+              abono: String(repToEdit.abono),
+              estado: repToEdit.estado,
+              tecnico_id: repToEdit.tecnico_asignado_id || "",
+              fecha_ingreso: repToEdit.fecha_ingreso ? repToEdit.fecha_ingreso.split('T')[0] : "",
+              fecha_compromiso: repToEdit.fecha_compromiso ? repToEdit.fecha_compromiso.split('T')[0] : "",
+              veces_garantia: repToEdit.veces_garantia || 0
+            });
+            setSelectedReparacion(repToEdit);
+            setIsEditing(true);
+            setShowAddModal(true);
+            
+            // Cleanup the URL to prevent re-triggering
+            window.history.replaceState({}, '', '/reparaciones');
+        }
+      } else if (clienteNome) {
         const existing = (cData || []).find((c: any) => c.nombre_completo === clienteNome);
         setForm(prev => ({ 
           ...prev, 
@@ -368,11 +403,58 @@ export default function ReparacionesPage() {
       if (isEditing && selectedReparacion) {
         const { error } = await supabase.from('reparaciones').update(baseRepair).eq('id', selectedReparacion.id);
         if (error) throw error;
+        
+        // Log movement if abono increased
+        const diffAbono = baseRepair.abono - (selectedReparacion.abono || 0);
+        if (diffAbono > 0 && cajaSession) {
+          await addMovimiento({
+            tipo: 'ingreso',
+            monto: diffAbono,
+            utilidad_neta: diffAbono * 0.6, // Estimación inicial de margen
+            concepto: `Abono Reparación #${baseRepair.numero_recibo}`,
+            categoria: "Reparaciones",
+            metodo_pago: metodoPagoAbono,
+            referencia_id: selectedReparacion.id,
+            es_traslado: false
+          });
+          setLastMovementData({
+            numero_recibo: baseRepair.numero_recibo,
+            cliente_nombre: form.nombre_cliente,
+            monto: diffAbono,
+            metodo_pago: metodoPagoAbono,
+            concepto: "Abono / Adelanto de Servicio",
+            fecha: new Date().toLocaleString(),
+            atendido_por: user?.email?.split('@')[0] || "Admin"
+          });
+        }
+        
         await createHistoryEntry(selectedReparacion.id, "Actualización de Registro", selectedReparacion.estado, form.estado, "Edición manual de campos.");
       } else {
         const { data, error } = await supabase.from('reparaciones').insert(baseRepair).select('id');
         if (error) throw error;
         if (data?.[0]) {
+          // Log movement if initial abono exists
+          if (baseRepair.abono > 0 && cajaSession) {
+            await addMovimiento({
+              tipo: 'ingreso',
+              monto: baseRepair.abono,
+              utilidad_neta: baseRepair.abono * 0.6,
+              concepto: `Abono Inicial Reparación #${baseRepair.numero_recibo}`,
+              categoria: "Reparaciones",
+              metodo_pago: metodoPagoAbono,
+              referencia_id: data[0].id,
+              es_traslado: false
+            });
+            setLastMovementData({
+              numero_recibo: baseRepair.numero_recibo,
+              cliente_nombre: form.nombre_cliente,
+              monto: baseRepair.abono,
+              metodo_pago: metodoPagoAbono,
+              concepto: "Abono Inicial / Recibo de Servicio",
+              fecha: new Date().toLocaleString(),
+              atendido_por: user?.email?.split('@')[0] || "Admin"
+            });
+          }
           await createHistoryEntry(data[0].id, "Registro Inicial", null, form.estado, "Ingreso inicial del reloj al taller.");
         }
       }
@@ -392,9 +474,45 @@ export default function ReparacionesPage() {
 
   const handleUpdateStatus = async (id: string, newStatus: string) => {
     try {
-      const oldStatus = reparaciones.find(r => r.id === id)?.estado || null;
-      const { error } = await supabase.from('reparaciones').update({ estado: newStatus }).eq('id', id);
-      if (error) throw error;
+      const rep = reparaciones.find(r => r.id === id);
+      const oldStatus = rep?.estado || null;
+      
+      // Special logic for delivery: check for payment
+      if (newStatus === "entregado" && rep && rep.saldo_pendiente > 0) {
+        if (!cajaSession) {
+          alert("Debe abrir caja antes de entregar y cobrar saldos pendientes.");
+          return;
+        }
+        const confirmPay = confirm(`¿Cobrar saldo pendiente de $${rep.saldo_pendiente} para entrega?`);
+        if (!confirmPay) return;
+
+        // Auto-update abono to match precio_final
+        await supabase.from('reparaciones').update({ abono: rep.precio_final, estado: 'entregado' }).eq('id', id);
+        
+        await addMovimiento({
+          tipo: 'ingreso',
+          monto: rep.saldo_pendiente,
+          utilidad_neta: rep.saldo_pendiente * 0.7,
+          concepto: `Cancelación Saldo # ${rep.numero_recibo}`,
+          categoria: "Reparaciones",
+          metodo_pago: "Efectivo", // Por defecto efectivo en entrega rápida
+          referencia_id: id,
+          es_traslado: false
+        });
+
+        setLastMovementData({
+           numero_recibo: rep.numero_recibo,
+           cliente_nombre: rep.clientes?.nombre_completo || "Cliente",
+           monto: rep.saldo_pendiente,
+           metodo_pago: "Efectivo",
+           concepto: "Cancelación de Saldo y Entrega",
+           fecha: new Date().toLocaleString(),
+           atendido_por: user?.email?.split('@')[0] || "Admin"
+        });
+      } else {
+        const { error } = await supabase.from('reparaciones').update({ estado: newStatus }).eq('id', id);
+        if (error) throw error;
+      }
       
       await createHistoryEntry(id, "Cambio de Estado", oldStatus, newStatus);
       
@@ -963,11 +1081,29 @@ export default function ReparacionesPage() {
                   <textarea className="w-full px-5 py-4 rounded-xl bg-neutral-50 dark:bg-neutral-800 text-sm font-bold min-h-[80px]" placeholder="Diagnóstico técnico" value={form.diagnostico} onChange={e => setForm({ ...form, diagnostico: e.target.value })} />
                 </div>
                 <div className="space-y-4">
-                  <p className="text-[10px] font-black text-neutral-300 uppercase tracking-widest border-b pb-2">Valores</p>
+                  <p className="text-[10px] font-black text-neutral-300 uppercase tracking-widest border-b pb-2">Valores y Pago</p>
                   <div className="grid grid-cols-2 gap-4">
-                    <input type="number" className="w-full px-5 py-6 rounded-2xl bg-neutral-50 dark:bg-neutral-800 text-2xl font-black text-center" placeholder="Total" value={form.precio_final} onChange={e => setForm({ ...form, precio_final: e.target.value })} />
-                    <input type="number" className="w-full px-5 py-6 rounded-2xl bg-green-50 dark:bg-green-900/20 text-green-600 text-2xl font-black text-center" placeholder="Abono" value={form.abono} onChange={e => setForm({ ...form, abono: e.target.value })} />
+                    <div>
+                      <label className="text-[9px] font-black text-neutral-400">PRECIO FINAL</label>
+                      <input type="number" className="w-full px-5 py-5 rounded-2xl bg-neutral-50 dark:bg-neutral-800 text-xl font-black text-center" placeholder="0" value={form.precio_final} onChange={e => setForm({ ...form, precio_final: e.target.value })} />
+                    </div>
+                    <div>
+                      <label className="text-[9px] font-black text-green-500">ABONO ACTUAL</label>
+                      <input type="number" className="w-full px-5 py-5 rounded-2xl bg-green-50 dark:bg-green-900/20 text-green-600 text-xl font-black text-center" placeholder="0" value={form.abono} onChange={e => setForm({ ...form, abono: e.target.value })} />
+                    </div>
                   </div>
+                  {Number(form.abono) > 0 && (
+                    <div className="animate-in slide-in-from-top duration-300">
+                      <label className="text-[9px] font-black text-amber-500 uppercase">Método de Cobro (Banco/Caja)</label>
+                      <select 
+                        className="w-full px-5 py-3 rounded-xl bg-amber-50 dark:bg-amber-900/10 text-[10px] font-black uppercase text-amber-700 border border-amber-200"
+                        value={metodoPagoAbono}
+                        onChange={(e) => setMetodoPagoAbono(e.target.value)}
+                      >
+                        {["Efectivo", "BAC", "LAFISE", "BANPRO", "POS"].map(m => <option key={m} value={m}>{m}</option>)}
+                      </select>
+                    </div>
+                  )}
                 </div>
               </div>
 
@@ -1174,6 +1310,13 @@ export default function ReparacionesPage() {
         </div>
       )}
 
+      {/* Comprobante Digital Modal */}
+      {lastMovementData && (
+        <ComprobantePago 
+          data={lastMovementData} 
+          onClose={() => setLastMovementData(null)} 
+        />
+      )}
     </div>
   );
 }
