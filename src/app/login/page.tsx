@@ -51,9 +51,17 @@ export default function Login() {
       setLoading(false); // Solo liberamos el botón si hay error
     } else {
       // SI HAY ÉXITO: 
-      // No hacemos router.push manual. Dejamos que el onAuthStateChange del AuthProvider haga su magia,
-      // lea el perfil, asigne el rol, y modifique el context { user }. 
-      // Eso disparará el useEffect de arriba y nos llevará a "/" de forma 100% segura.
+      const { data: { user: currentUser } } = await supabase.auth.getUser();
+      if (currentUser) {
+          await supabase.from('auditoria_logs').insert([{
+              usuario_id: currentUser.id,
+              usuario_email: currentUser.email,
+              accion: 'LOGIN',
+              modulo: 'Autenticación',
+              detalles: 'Inicio de sesión exitoso desde Cliente Web'
+          }]);
+      }
+      // No hacemos router.push manual. Dejamos que el onAuthStateChange del AuthProvider haga su magia.
     }
   };
 

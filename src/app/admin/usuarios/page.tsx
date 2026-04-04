@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { supabase } from "@/lib/supabase";
 import { useAuth } from "@/components/AuthProvider";
+import { ShieldAlert, Users, Activity, Terminal } from "lucide-react";
 
 interface Perfil {
   id: string;
@@ -16,25 +17,32 @@ interface Perfil {
 export default function GestionUsuarios() {
   const { rol: currentUserRol, user: currentUser, sessionReady } = useAuth();
   const [usuarios, setUsuarios] = useState<Perfil[]>([]);
+  const [auditLogs, setAuditLogs] = useState<any[]>([]);
+  const [activeTab, setActiveTab] = useState<'equipo'|'auditoria'>('equipo');
   const [loading, setLoading] = useState(true);
   const [editingUser, setEditingUser] = useState<Perfil | null>(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
 
   useEffect(() => {
-    async function fetchUsuarios() {
-      const { data, error } = await supabase
+    async function fetchUsuariosAndLogs() {
+      const { data: perfs } = await supabase
         .from("perfiles")
         .select("*")
         .order("rol", { ascending: true });
+      if (perfs) setUsuarios(perfs);
 
-      if (!error && data) {
-        setUsuarios(data);
-      }
+      const { data: logs } = await supabase
+        .from("auditoria_logs")
+        .select("*")
+        .order("created_at", { ascending: false })
+        .limit(100);
+      if (logs) setAuditLogs(logs);
+
       setLoading(false);
     }
 
     if (currentUserRol === "admin" && sessionReady) {
-      fetchUsuarios();
+      fetchUsuariosAndLogs();
     }
   }, [currentUserRol, sessionReady]);
 
@@ -123,21 +131,47 @@ export default function GestionUsuarios() {
         </button>
       </div>
 
-      {/* Stats Summary */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-        <div className="bg-white dark:bg-neutral-900 p-8 rounded-[2.5rem] border border-neutral-100 dark:border-neutral-800 shadow-xl">
-          <p className="text-[10px] font-black text-neutral-400 uppercase tracking-widest mb-1">Total Personal</p>
-          <p className="text-3xl font-black text-neutral-900 dark:text-white italic">{usuarios.length}</p>
-        </div>
-        <div className="bg-white dark:bg-neutral-900 p-8 rounded-[2.5rem] border border-neutral-100 dark:border-neutral-800 shadow-xl border-l-4 border-l-blue-500">
-          <p className="text-[10px] font-black text-neutral-400 uppercase tracking-widest mb-1">Técnicos</p>
-          <p className="text-3xl font-black text-neutral-900 dark:text-white italic">{usuarios.filter(u => u.rol === 'tecnico').length}</p>
-        </div>
-        <div className="bg-white dark:bg-neutral-900 p-8 rounded-[2.5rem] border border-neutral-100 dark:border-neutral-800 shadow-xl border-l-4 border-l-amber-500">
-          <p className="text-[10px] font-black text-neutral-400 uppercase tracking-widest mb-1">Activos</p>
-          <p className="text-3xl font-black text-emerald-600 italic">{usuarios.filter(u => u.activo).length}</p>
-        </div>
+      {/* Tabs */}
+      <div className="flex items-center gap-1.5 p-2 bg-neutral-100 dark:bg-neutral-900 rounded-[2rem] w-fit border border-neutral-200 dark:border-neutral-800">
+        <button 
+          onClick={() => setActiveTab('equipo')}
+          className={`flex items-center gap-2.5 px-7 py-3 rounded-2xl text-[10px] font-black uppercase tracking-widest transition-all ${
+            activeTab === 'equipo' 
+            ? "bg-white dark:bg-neutral-800 text-neutral-900 dark:text-white shadow-lg scale-[1.03]" 
+            : "text-neutral-500 hover:text-neutral-900 dark:hover:text-neutral-200"
+          }`}
+        >
+          <Users className="w-3.5 h-3.5" /> Equipo
+        </button>
+        <button 
+          onClick={() => setActiveTab('auditoria')}
+          className={`flex items-center gap-2.5 px-7 py-3 rounded-2xl text-[10px] font-black uppercase tracking-widest transition-all ${
+            activeTab === 'auditoria' 
+            ? "bg-white dark:bg-neutral-800 text-neutral-900 dark:text-white shadow-lg scale-[1.03]" 
+            : "text-neutral-500 hover:text-neutral-900 dark:hover:text-neutral-200"
+          }`}
+        >
+          <Terminal className="w-3.5 h-3.5" /> Caja Negra (Auditoría)
+        </button>
       </div>
+
+      {activeTab === 'equipo' ? (
+        <>
+          {/* Stats Summary */}
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+            <div className="bg-white dark:bg-neutral-900 p-8 rounded-[2.5rem] border border-neutral-100 dark:border-neutral-800 shadow-xl">
+              <p className="text-[10px] font-black text-neutral-400 uppercase tracking-widest mb-1">Total Personal</p>
+              <p className="text-3xl font-black text-neutral-900 dark:text-white italic">{usuarios.length}</p>
+            </div>
+            <div className="bg-white dark:bg-neutral-900 p-8 rounded-[2.5rem] border border-neutral-100 dark:border-neutral-800 shadow-xl border-l-4 border-l-blue-500">
+              <p className="text-[10px] font-black text-neutral-400 uppercase tracking-widest mb-1">Técnicos</p>
+              <p className="text-3xl font-black text-neutral-900 dark:text-white italic">{usuarios.filter(u => u.rol === 'tecnico').length}</p>
+            </div>
+            <div className="bg-white dark:bg-neutral-900 p-8 rounded-[2.5rem] border border-neutral-100 dark:border-neutral-800 shadow-xl border-l-4 border-l-amber-500">
+              <p className="text-[10px] font-black text-neutral-400 uppercase tracking-widest mb-1">Activos</p>
+              <p className="text-3xl font-black text-emerald-600 italic">{usuarios.filter(u => u.activo).length}</p>
+            </div>
+          </div>
 
       {/* Tabla de Usuarios */}
       <div className="bg-white dark:bg-neutral-900 rounded-[2.5rem] border border-neutral-100 dark:border-neutral-800 overflow-hidden shadow-2xl">
@@ -213,6 +247,43 @@ export default function GestionUsuarios() {
           </table>
         </div>
       </div>
+      </>) : (
+        <div className="space-y-6">
+          <div className="p-6 bg-black dark:bg-neutral-950 rounded-3xl border border-neutral-800/80 shadow-2xl overflow-hidden relative">
+             <div className="absolute top-0 right-0 p-8 opacity-10">
+                <ShieldAlert className="w-48 h-48 text-emerald-500" />
+             </div>
+             <div className="relative z-10 flex items-center justify-between mb-8 pb-4 border-b border-emerald-900/30">
+                <div>
+                  <h3 className="text-xl font-mono font-bold text-emerald-500 flex items-center gap-3">
+                     <Terminal className="w-5 h-5"/> SYSTEM_AUDIT_LOG_v1.0
+                  </h3>
+                  <p className="text-emerald-700 font-mono text-[10px] tracking-[0.2em] mt-1">ULTIMOS 100 REGISTROS GLOBALES</p>
+                </div>
+                <div className="px-3 py-1 bg-emerald-900/40 border border-emerald-500/30 rounded text-emerald-400 font-mono text-[9px] flex items-center gap-2">
+                   <div className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></div>
+                   LIVE
+                </div>
+             </div>
+             
+             <div className="font-mono text-xs space-y-1">
+               {auditLogs.length === 0 ? (
+                 <div className="text-emerald-700/50 py-10 text-center italic">Esperando eventos en el sistema...</div>
+               ) : (
+                 auditLogs.map(log => (
+                   <div key={log.id} className="group p-2 hover:bg-emerald-900/10 rounded flex flex-col md:flex-row gap-2 text-emerald-600/80 hover:text-emerald-400 transition-colors">
+                     <span className="w-32 flex-shrink-0 text-neutral-500">[{new Date(log.created_at).toLocaleString()}]</span>
+                     <span className={`w-28 flex-shrink-0 font-bold ${log.accion === 'DELETE' || log.accion === 'ANULACION' ? 'text-rose-500' : 'text-emerald-500'}`}>[{log.accion}]</span>
+                     <span className="w-28 flex-shrink-0 text-emerald-700 uppercase">{log.modulo}</span>
+                     <span className="flex-1 text-emerald-300">{log.detalles}</span>
+                     <span className="w-40 flex-shrink-0 text-emerald-700/60 truncate" title={log.usuario_email}>{log.usuario_email}</span>
+                   </div>
+                 ))
+               )}
+             </div>
+          </div>
+        </div>
+      )}
 
       {/* Modal de Edición Premium */}
       {isModalOpen && editingUser && (

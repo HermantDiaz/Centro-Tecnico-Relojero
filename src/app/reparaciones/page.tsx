@@ -4,6 +4,7 @@ import { useState, useEffect, useMemo } from "react";
 import { supabase } from "@/lib/supabase";
 import { useAuth } from "@/components/AuthProvider";
 import { useCaja } from "@/hooks/useCaja";
+import { useAudit } from "@/hooks/useAudit";
 import ComprobantePago from "@/components/caja/ComprobantePago";
 import {
   Plus, Upload, Search, Filter, Clock, CheckCircle2, AlertCircle, Wrench,
@@ -68,6 +69,7 @@ interface InsumoReparacion {
 export default function ReparacionesPage() {
   const { user, sessionReady, rol } = useAuth();
   const { session: cajaSession, addMovimiento } = useCaja();
+  const { logEvent } = useAudit();
   
   const [reparaciones, setReparaciones] = useState<Reparacion[]>([]);
   const [lastMovementData, setLastMovementData] = useState<any | null>(null);
@@ -528,6 +530,7 @@ export default function ReparacionesPage() {
   const handleDelete = async (id: string) => {
     setIsLoading(true);
     try {
+      const repToDelete = reparaciones.find(r => r.id === id);
       const { error } = await supabase.from('reparaciones').delete().eq('id', id);
       if (error) throw error;
       
@@ -538,6 +541,7 @@ export default function ReparacionesPage() {
         return next;
       });
       setSelectedReparacion(null);
+      await logEvent('DELETE', 'Reparaciones', `Eliminó la reparación / recibo: #${repToDelete?.numero_recibo || id}`);
       alert('Registro eliminado con éxito');
     } catch (err: any) {
       alert('Error al eliminar: ' + (err.message || "Error desconocido"));
@@ -551,6 +555,7 @@ export default function ReparacionesPage() {
     
     setIsLoading(true);
     try {
+      const repsToDelete = reparaciones.filter(r => selectedIds.has(r.id)).map(r => r.numero_recibo).join(", ");
       const { error } = await supabase
         .from('reparaciones')
         .delete()
@@ -565,6 +570,7 @@ export default function ReparacionesPage() {
       setReparaciones(prev => prev.filter(r => !selectedIds.has(r.id)));
       setSelectedIds(new Set());
       setIsDeletingBulk(false);
+      await logEvent('DELETE', 'Reparaciones', `Eliminación masiva de ${selectedIds.size} registros. Recibos: [${repsToDelete}]`);
       alert(`${selectedIds.size} registros eliminados con éxito`);
     } catch (err: any) {
       alert('Error al eliminar los registros');

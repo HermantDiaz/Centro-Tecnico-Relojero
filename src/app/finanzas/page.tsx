@@ -9,7 +9,6 @@ import {
   ArrowUpRight, 
   ArrowDownLeft, 
   History, 
-  PieChart, 
   Users, 
   Plus, 
   TrendingUp,
@@ -17,18 +16,18 @@ import {
   ArrowRightLeft,
   AlertCircle,
   CheckCircle2,
-  HandCoins,
-  Receipt,
   Search,
   X,
-  ExternalLink
+  ExternalLink,
+  Ban
 } from "lucide-react";
 import { useRouter } from "next/navigation";
 import ComprobantePago from "@/components/caja/ComprobantePago";
+import { useAudit } from "@/hooks/useAudit";
 
 const METODOS_PAGO = ["Efectivo", "BAC", "LAFISE", "BANPRO", "POS"] as const;
 const CATEGORIAS_GASTO = ["Sueldos / Nómina", "Repuestos", "Alquiler", "Servicios", "Insumos Taller", "Impuestos", "Otros"];
-const TIPOS_DEUDA = ["Proveedor", "Impuesto", "Prestamo", "Otro"] as const;
+
 
 interface CuentaTesoreria {
     id: string;
@@ -52,8 +51,9 @@ export default function FinanzasPage() {
   const { rol, user, loading: authLoading } = useAuth();
   const { session, loading: cajaLoading, openCaja, closeCaja, addMovimiento, refresh: refreshCaja } = useCaja();
   const router = useRouter();
+  const { logEvent } = useAudit();
   
-  const [activeTab, setActiveTab] = useState<'hoy' | 'movimientos' | 'tesoreria' | 'deudas' | 'estadisticas'>('hoy');
+  const [activeTab, setActiveTab] = useState<'hoy' | 'movimientos' | 'tesoreria'>('hoy');
   const [movimientos, setMovimientos] = useState<CajaMovimiento[]>([]);
   const [cuentas, setCuentas] = useState<CuentaTesoreria[]>([]);
   const [deudas, setDeudas] = useState<DeudaEmpresa[]>([]);
@@ -69,15 +69,12 @@ export default function FinanzasPage() {
   const [isGastoModalOpen, setIsGastoModalOpen] = useState(false);
   const [isCierreModalOpen, setIsCierreModalOpen] = useState(false);
   const [isTrasladoModalOpen, setIsTrasladoModalOpen] = useState(false);
-  const [isDeudaModalOpen, setIsDeudaModalOpen] = useState(false);
-  
   const [montoApertura, setMontoApertura] = useState("");
   const [montoCierreReal, setMontoCierreReal] = useState("");
   
   const [nuevoIngreso, setNuevoIngreso] = useState({ monto: "", concepto: "", categoria: "Ventas", metodo_pago: "Efectivo" as any });
   const [nuevoGasto, setNuevoGasto] = useState({ monto: "", concepto: "", categoria: "Otros", metodo_pago: "Efectivo" as any, referencia_bancaria: "" });
   const [nuevoTraslado, setNuevoTraslado] = useState({ monto: "", desde: "Efectivo", hacia: "BAC", referencia: "" });
-  const [nuevaDeuda, setNuevaDeuda] = useState({ acreedor: "", monto: "", tipo: "Proveedor" as any, vencimiento: "", notas: "" });
 
   const fetchData = useCallback(async () => {
     // 1. Movimientos
@@ -170,6 +167,7 @@ export default function FinanzasPage() {
       setShowComprobante(true);
       setNuevoIngreso({ monto: "", concepto: "", categoria: "Ventas", metodo_pago: "Efectivo" });
       fetchData();
+      await logEvent('LOGIN', 'Finanzas', `Ingreso manual registrado por $${nuevoIngreso.monto}. Concepto: ${nuevoIngreso.concepto}`);
     } catch (e: any) { alert(e.message); }
   };
 
@@ -229,27 +227,53 @@ export default function FinanzasPage() {
     if (!session) return;
     try {
       await closeCaja(session.id, Number(montoCierreReal));
+      await logEvent('CIERRE_CAJA', 'Finanzas', `Cierre de caja ejecutado. Esperado: $${session.monto_cierre_esperado}. Real: $${montoCierreReal}`);
       setIsCierreModalOpen(false);
       fetchData();
     } catch (e: any) { alert(e.message); }
   };
 
-  const handleAddDeuda = async () => {
-      try {
-          const { error } = await supabase.from('deudas_empresa').insert([{
-              acreedor: nuevaDeuda.acreedor,
-              monto_total: Number(nuevaDeuda.monto),
-              saldo_pendiente: Number(nuevaDeuda.monto),
-              tipo: nuevaDeuda.tipo,
-              fecha_vencimiento: nuevaDeuda.vencimiento,
-              notas: nuevaDeuda.notas
-          }]);
-          if (error) throw error;
-          setIsDeudaModalOpen(false);
-          setNuevaDeuda({ acreedor: "", monto: "", tipo: "Proveedor", vencimiento: "", notas: "" });
-          fetchData();
-      } catch (e: any) { alert(e.message); }
-  }
+  const handleAnularMovimiento = async (m: CajaMovimiento) => {
+    const confirmacion = window.confirm(`¿Estás seguro de anular el movimiento de $${m.monto}?\nConcepto: ${m.concepto}\n\nEsto creará un movimiento reverso para anular el efecto en la tesorería.`);
+    if (!confirmacion) return;
+    
+    try {
+        await addMovimiento({
+            tipo: m.tipo === 'ingreso' ? 'egreso' : 'ingreso',
+            monto: m.monto,
+            utilidad_neta: 0,
+            concepto: `ANULACIÓN: ${m.concepto}`,
+            categoria: m.categoria,
+            metodo_pago: m.metodo_pago,
+            es_traslado: false,
+            referencia_bancaria: m.referencia_bancaria
+        });
+
+        // REVERSIÓN DE DEUDA: Si el movimiento original era un PAGO DE DEUDA, restauramos el saldo
+        if (m.concepto.startsWith("PAGO DEUDA:")) {
+             const acreedorMatch = m.concepto.replace("PAGO DEUDA: ", "").trim();
+             const deuda = deudas.find(d => d.acreedor === acreedorMatch);
+             if (deuda) {
+                 const nuevoSaldo = Number(deuda.saldo_pendiente) + Number(m.monto);
+                 // No superamos el monto original reportado
+                 const saldoFinal = nuevoSaldo > Number(deuda.monto_total) ? Number(deuda.monto_total) : nuevoSaldo;
+                 
+                 await supabase.from("deudas_empresa").update({
+                     saldo_pendiente: saldoFinal,
+                     estado: saldoFinal >= Number(deuda.monto_total) ? 'Pendiente' : 'Parcial'
+                 }).eq('id', deuda.id);
+             }
+        }
+
+        await logEvent('ANULACION', 'Finanzas', `Se anuló el movimiento ID: ${m.id} por $${m.monto}. Concepto: ${m.concepto}. Efecto revertido.`);
+        alert('Movimiento anulado correctamente. Ajustes revertidos en balances.');
+        fetchData();
+    } catch (e: any) {
+        alert(e.message);
+    }
+  };
+
+
 
   return (
     <div className="max-w-7xl mx-auto space-y-8 animate-in fade-in duration-700">
@@ -320,9 +344,7 @@ export default function FinanzasPage() {
         {[
             { id: 'hoy', label: 'Diario', icon: Wallet },
             { id: 'tesoreria', label: 'Bóveda / Bancos', icon: Building2 },
-            { id: 'deudas', label: 'Deudas', icon: HandCoins },
-            { id: 'movimientos', label: 'Movimientos', icon: History },
-            { id: 'estadisticas', label: 'P&L / Salud', icon: PieChart },
+            { id: 'movimientos', label: 'Movimientos', icon: History }
         ].map((tab) => (
             <button
                 key={tab.id}
@@ -419,74 +441,7 @@ export default function FinanzasPage() {
           </div>
       )}
 
-      {activeTab === 'deudas' && (
-          <div className="space-y-8 animate-in zoom-in duration-500">
-              <div className="flex justify-between items-center px-4">
-                  <div>
-                    <h3 className="text-3xl font-black text-neutral-900 dark:text-white uppercase italic tracking-tighter">Deudas y Pasivos</h3>
-                    <p className="text-xs text-neutral-500 font-bold uppercase tracking-widest mt-1">Control de obligaciones externas</p>
-                  </div>
-                  <button onClick={() => setIsDeudaModalOpen(true)} className="px-8 py-4 bg-amber-600 text-white rounded-[2rem] font-black text-xs uppercase tracking-[0.2em] shadow-2xl shadow-amber-600/20 active:scale-95 transition-all flex items-center gap-3">
-                       <Plus className="w-5 h-5" /> Nueva Deuda
-                  </button>
-              </div>
-              <div className="bg-white dark:bg-neutral-900 rounded-[3rem] border border-neutral-100 dark:border-neutral-800 overflow-hidden shadow-2xl">
-                  <table className="w-full text-left">
-                      <thead className="bg-neutral-50 dark:bg-neutral-800/50">
-                          <tr>
-                              <th className="px-10 py-7 text-[10px] font-black uppercase tracking-widest text-neutral-400">Acreedor</th>
-                              <th className="px-10 py-7 text-[10px] font-black uppercase tracking-widest text-neutral-400">Tipo / Naturaleza</th>
-                              <th className="px-10 py-7 text-[10px] font-black uppercase tracking-widest text-neutral-400">Vencimiento</th>
-                              <th className="px-10 py-7 text-[10px] font-black uppercase tracking-widest text-neutral-400 text-right">Saldo Pendiente</th>
-                              <th className="px-10 py-7 text-[10px] font-black uppercase tracking-widest text-neutral-400 text-right">Estado</th>
-                          </tr>
-                      </thead>
-                      <tbody className="divide-y divide-neutral-100 dark:divide-neutral-800">
-                          {deudas.map(d => (
-                              <tr key={d.id} className="hover:bg-neutral-50/50 dark:hover:bg-neutral-800/30 transition-colors group">
-                                  <td className="px-10 py-7">
-                                      <p className="text-md font-black text-neutral-900 dark:text-white uppercase tracking-tight">{d.acreedor}</p>
-                                      <p className="text-[10px] text-neutral-400 font-bold italic mt-1">{d.notas || "Sin anotaciones"}</p>
-                                  </td>
-                                  <td className="px-10 py-7">
-                                      <span className="px-4 py-2 bg-neutral-100 dark:bg-neutral-800 text-neutral-600 rounded-xl text-[10px] font-black uppercase tracking-widest shadow-inner">
-                                          {d.tipo}
-                                      </span>
-                                  </td>
-                                  <td className="px-10 py-7">
-                                      <div className="flex items-center gap-3">
-                                          <div className={`w-2 h-2 rounded-full ${new Date(d.fecha_vencimiento) < new Date() ? 'bg-rose-500 animate-pulse' : 'bg-neutral-300'}`}></div>
-                                          <span className="text-xs font-black text-neutral-500 uppercase tracking-tighter">{new Date(d.fecha_vencimiento).toLocaleDateString('es-ES', { day: '2-digit', month: 'long' })}</span>
-                                      </div>
-                                  </td>
-                                  <td className="px-10 py-7 text-right">
-                                      <p className="text-lg font-black text-rose-600 italic tracking-tighter">${Number(d.saldo_pendiente).toFixed(2)}</p>
-                                      <p className="text-[8px] text-neutral-400 font-black uppercase">Original: ${Number(d.monto_total).toFixed(2)}</p>
-                                  </td>
-                                  <td className="px-10 py-7 text-right">
-                                      <span className={`px-4 py-2 rounded-2xl text-[9px] font-black uppercase tracking-widest shadow-sm ${
-                                          d.estado === 'Pendiente' ? 'bg-rose-100 text-rose-600 border border-rose-200' :
-                                          d.estado === 'Parcial' ? 'bg-amber-100 text-amber-600 border border-amber-200' :
-                                          'bg-emerald-100 text-emerald-600 border border-emerald-200'
-                                      }`}>
-                                          {d.estado}
-                                      </span>
-                                  </td>
-                              </tr>
-                          ))}
-                          {deudas.length === 0 && (
-                              <tr>
-                                  <td colSpan={5} className="px-8 py-32 text-center">
-                                      <Receipt className="w-12 h-12 text-neutral-200 mx-auto mb-4" />
-                                      <p className="text-neutral-400 italic font-medium">Libre de deudas por ahora.</p>
-                                  </td>
-                              </tr>
-                          )}
-                      </tbody>
-                  </table>
-              </div>
-          </div>
-      )}
+
 
       {activeTab === 'movimientos' && (
           <div className="space-y-6 animate-in fade-in duration-500">
@@ -539,6 +494,15 @@ export default function FinanzasPage() {
                                               Editar <ExternalLink className="w-3 h-3" />
                                           </button>
                                       )}
+                                      {!m.concepto.startsWith('ANULACIÓN:') && m.tipo !== 'traslado' && (
+                                          <button 
+                                              onClick={() => handleAnularMovimiento(m)}
+                                              className="ml-2 inline-flex items-center gap-1.5 px-3 py-1.5 bg-rose-50 hover:bg-rose-100 dark:bg-rose-900/20 dark:hover:bg-rose-900/40 text-rose-600 dark:text-rose-400 rounded-lg text-[9px] font-black uppercase tracking-widest transition-colors"
+                                              title="Anular Movimiento (Crear Reversión)"
+                                          >
+                                              <Ban className="w-3 h-3" />
+                                          </button>
+                                      )}
                                   </td>
                               </tr>
                           ))}
@@ -556,72 +520,7 @@ export default function FinanzasPage() {
           </div>
       )}
 
-      {activeTab === 'estadisticas' && (
-          <div className="space-y-8 animate-in slide-in-from-right duration-500">
-              <div className="flex justify-between items-center px-4">
-                  <div>
-                    <h3 className="text-3xl font-black text-neutral-900 dark:text-white uppercase italic tracking-tighter">P&L y Rentabilidad</h3>
-                    <p className="text-xs text-neutral-500 font-bold uppercase tracking-widest mt-1">Análisis de estado de resultados</p>
-                  </div>
-              </div>
-              <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-                  {/* Ingresos vs Egresos */}
-                  <div className="lg:col-span-2 bg-white dark:bg-neutral-900 rounded-[3rem] border border-neutral-100 dark:border-neutral-800 p-10 shadow-2xl">
-                      <h4 className="text-sm font-black text-neutral-400 uppercase tracking-widest mb-8">Flujo de Efectivo</h4>
-                      <div className="space-y-6">
-                          <div>
-                              <div className="flex justify-between text-xs font-black uppercase mb-2">
-                                  <span className="text-emerald-600">Ingresos Operativos</span>
-                                  <span className="text-emerald-600">${stats.ingresos.toFixed(2)}</span>
-                              </div>
-                              <div className="h-4 bg-neutral-100 dark:bg-neutral-800 rounded-full overflow-hidden">
-                                  <div className="h-full bg-emerald-500 rounded-full" style={{ width: `${stats.ingresos > 0 ? 100 : 0}%` }}></div>
-                              </div>
-                          </div>
-                          <div>
-                              <div className="flex justify-between text-xs font-black uppercase mb-2">
-                                  <span className="text-rose-600">Gastos / Egresos</span>
-                                  <span className="text-rose-600">${stats.egresos.toFixed(2)}</span>
-                              </div>
-                              <div className="h-4 bg-neutral-100 dark:bg-neutral-800 rounded-full overflow-hidden">
-                                  <div className="h-full bg-rose-500 rounded-full" style={{ width: `${stats.ingresos > 0 ? Math.min((stats.egresos / stats.ingresos) * 100, 100) : 0}%` }}></div>
-                              </div>
-                          </div>
-                      </div>
-                      <div className="mt-10 pt-8 border-t border-neutral-100 dark:border-neutral-800 flex justify-between items-end">
-                          <div>
-                              <p className="text-[10px] font-black text-neutral-400 uppercase tracking-widest mb-1">Margen Operativo Bruto</p>
-                              <p className={`text-5xl font-black italic tracking-tighter ${stats.ingresos - stats.egresos >= 0 ? 'text-emerald-500' : 'text-rose-500'}`}>
-                                  ${(stats.ingresos - stats.egresos).toFixed(2)}
-                              </p>
-                          </div>
-                          <PieChart className="w-16 h-16 text-neutral-100 dark:text-neutral-800 flex-shrink-0" />
-                      </div>
-                  </div>
 
-                  {/* Resumen Patrimonial */}
-                  <div className="bg-black dark:bg-neutral-800 rounded-[3rem] p-10 shadow-2xl text-white flex flex-col justify-between">
-                      <div>
-                          <h4 className="text-sm font-black text-neutral-400 uppercase tracking-widest mb-8">Salud Patrimonial</h4>
-                          <div className="space-y-6">
-                              <div className="flex justify-between items-center border-b border-white/10 pb-4">
-                                  <span className="text-xs font-bold text-neutral-400 uppercase tracking-widest">Activos Totales</span>
-                                  <span className="font-black italic">${(stats.capitalDisponible + saldosCobrar).toFixed(2)}</span>
-                              </div>
-                              <div className="flex justify-between items-center border-b border-white/10 pb-4">
-                                  <span className="text-xs font-bold text-rose-400 uppercase tracking-widest">Pasivos Corrientes</span>
-                                  <span className="font-black italic text-rose-400">-${stats.deudasTotales.toFixed(2)}</span>
-                              </div>
-                          </div>
-                      </div>
-                      <div className="mt-10">
-                          <p className="text-[10px] font-black text-emerald-500 uppercase tracking-widest mb-2">Liquidez Neta Real</p>
-                          <p className="text-5xl font-black italic tracking-tighter text-emerald-400 break-words">${stats.liquidezTotal.toFixed(2)}</p>
-                      </div>
-                  </div>
-              </div>
-          </div>
-      )}
 
       {/* --- Unified Modals Center --- */}
       
@@ -792,52 +691,7 @@ export default function FinanzasPage() {
           </div>
       )}
 
-      {/* Debt Modal PRO */}
-      {isDeudaModalOpen && (
-          <div onClick={() => setIsDeudaModalOpen(false)} className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-              <div onClick={(e) => e.stopPropagation()} className="bg-white dark:bg-neutral-900 w-full max-w-sm rounded-[3rem] p-10 shadow-2xl animate-in zoom-in duration-300 border border-neutral-100 dark:border-neutral-800 relative">
-                  <button onClick={() => setIsDeudaModalOpen(false)} className="absolute top-6 right-6 p-2 text-neutral-400 hover:text-black dark:hover:text-white hover:bg-neutral-100 dark:hover:bg-neutral-800 rounded-full transition-all z-[60]">
-                      <X className="w-5 h-5" />
-                  </button>
-                  <div className="flex items-center gap-4 mb-8 border-b pb-4 border-neutral-50 dark:border-neutral-800">
-                      <div className="w-12 h-12 bg-amber-500 text-white rounded-2xl flex items-center justify-center font-black shadow-lg shadow-amber-500/30">🤝</div>
-                      <div>
-                        <h3 className="text-xl font-black text-neutral-900 dark:text-white uppercase italic tracking-tighter leading-none">Nueva ObligaciOn</h3>
-                        <p className="text-[9px] font-bold text-neutral-400 uppercase tracking-widest mt-1">Registro de pasivos</p>
-                      </div>
-                  </div>
-                  <div className="space-y-4">
-                      <div>
-                          <label className="block text-[9px] font-black uppercase tracking-widest text-neutral-400 mb-2 ml-1">Acreedor / Entidad</label>
-                          <input placeholder="Ej: Importadora X, DGI" className="w-full bg-neutral-50 dark:bg-neutral-800 border-none rounded-xl p-4 font-black text-sm" value={nuevaDeuda.acreedor} onChange={(e) => setNuevaDeuda({...nuevaDeuda, acreedor: e.target.value})} />
-                      </div>
-                      <div className="grid grid-cols-2 gap-4">
-                          <div>
-                              <label className="block text-[9px] font-black uppercase tracking-widest text-neutral-400 mb-2 ml-1">Monto ($)</label>
-                              <input type="number" className="w-full bg-neutral-50 dark:bg-neutral-800 border-none rounded-xl p-4 font-black text-xl italic text-rose-500" value={nuevaDeuda.monto} onChange={(e) => setNuevaDeuda({...nuevaDeuda, monto: e.target.value})} />
-                          </div>
-                          <div>
-                              <label className="block text-[9px] font-black uppercase tracking-widest text-neutral-400 mb-2 ml-1">Tipo</label>
-                              <select className="w-full bg-neutral-50 dark:bg-neutral-800 border-none rounded-xl p-4 font-black text-[10px] uppercase tracking-widest" value={nuevaDeuda.tipo} onChange={(e) => setNuevaDeuda({...nuevaDeuda, tipo: e.target.value as any})}>
-                                  {TIPOS_DEUDA.map(t => <option key={t} value={t}>{t}</option>)}
-                              </select>
-                          </div>
-                      </div>
-                      <div>
-                          <label className="block text-[9px] font-black uppercase tracking-widest text-neutral-400 mb-2 ml-1">Vencimiento</label>
-                          <input type="date" className="w-full bg-neutral-50 dark:bg-neutral-800 border-none rounded-xl p-4 font-black text-xs" value={nuevaDeuda.vencimiento} onChange={(e) => setNuevaDeuda({...nuevaDeuda, vencimiento: e.target.value})} />
-                      </div>
-                      <div>
-                          <label className="block text-[9px] font-black uppercase tracking-widest text-neutral-400 mb-2 ml-1">Anotaciones</label>
-                          <textarea rows={2} className="w-full bg-neutral-50 dark:bg-neutral-800 border-none rounded-xl p-3 font-bold text-xs" value={nuevaDeuda.notas} onChange={(e) => setNuevaDeuda({...nuevaDeuda, notas: e.target.value})} />
-                      </div>
-                      <div className="pt-2">
-                        <button onClick={handleAddDeuda} className="w-full py-5 bg-black dark:bg-white text-white dark:text-black rounded-2xl font-black text-[10px] uppercase tracking-[0.2em] shadow-xl active:scale-95 transition-all mt-2">Confirmar Pasivo</button>
-                      </div>
-                  </div>
-              </div>
-          </div>
-      )}
+
 
       {/* Modal Cierre */}
       {isCierreModalOpen && (
@@ -887,6 +741,8 @@ export default function FinanzasPage() {
               }}
           />
       )}
+
+
 
     </div>
   );

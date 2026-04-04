@@ -12,6 +12,7 @@ const NAV_ITEMS = [
   { label: "Clientes", icon: "👥", path: "/clientes", roles: ["admin", "recepcion", "tecnico"] },
   { label: "Caja / Finanzas", icon: "💰", path: "/finanzas", roles: ["admin"] },
   { label: "Deudas", icon: "🤝", path: "/deudas", roles: ["admin"] },
+  { label: "Reportes P&L", icon: "📈", path: "/reportes", roles: ["admin"] },
 ];
 
 const ADMIN_ITEMS = [
