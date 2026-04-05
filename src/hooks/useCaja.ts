@@ -64,6 +64,17 @@ export const useCaja = () => {
 
   const openCaja = async (monto: number, notas?: string) => {
     if (!user) throw new Error('Usuario no autenticado');
+
+    // Prevent orphaned sessions by forcing all currently open sessions to close
+    await supabase
+      .from('caja_sesiones')
+      .update({
+        estado: 'cerrada',
+        notas: 'Cierre forzado automático por nueva apertura',
+        fecha_cierre: new Date().toISOString()
+      })
+      .eq('estado', 'abierta');
+
     const { data, error } = await supabase
       .from('caja_sesiones')
       .insert([{

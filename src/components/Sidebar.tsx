@@ -7,12 +7,12 @@ import { useAuth } from "./AuthProvider";
 
 const NAV_ITEMS = [
   { label: "Dashboard", icon: "📊", path: "/", roles: ["admin", "recepcion", "tecnico"] },
+  { label: "Caja Diaria", icon: "💰", path: "/caja", roles: ["admin"] },
   { label: "Inventario", icon: "📦", path: "/inventario", roles: ["admin", "recepcion", "tecnico"] },
   { label: "Reparaciones", icon: "🛠️", path: "/reparaciones", roles: ["admin", "recepcion", "tecnico"] },
   { label: "Clientes", icon: "👥", path: "/clientes", roles: ["admin", "recepcion", "tecnico"] },
-  { label: "Caja / Finanzas", icon: "💰", path: "/finanzas", roles: ["admin"] },
   { label: "Deudas", icon: "🤝", path: "/deudas", roles: ["admin"] },
-  { label: "Reportes P&L", icon: "📈", path: "/reportes", roles: ["admin"] },
+  { label: "Reportes", icon: "📈", path: "/reportes", roles: ["admin"] },
 ];
 
 const ADMIN_ITEMS = [

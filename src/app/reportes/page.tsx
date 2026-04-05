@@ -3,7 +3,7 @@
 import { useEffect, useState, useMemo } from "react";
 import { useAuth } from "@/components/AuthProvider";
 import { supabase } from "@/lib/supabase";
-import { PieChart, TrendingUp, History, CalendarDays } from "lucide-react";
+import { PieChart, TrendingUp, History, CalendarDays, Building2, CheckCircle2 } from "lucide-react";
 import { useRouter } from "next/navigation";
 
 interface CajaSesion {
@@ -34,6 +34,12 @@ export default function ReportesPage() {
   
   const [sesiones, setSesiones] = useState<CajaSesion[]>([]);
   const [movimientos, setMovimientos] = useState<Movimiento[]>([]);
+  
+  // Balance General States
+  const [saldosCobrar, setSaldosCobrar] = useState(0);
+  const [capitalDisponible, setCapitalDisponible] = useState(0);
+  const [deudasTotales, setDeudasTotales] = useState(0);
+  
   const [fetching, setFetching] = useState(true);
 
   // Chart States
@@ -62,6 +68,22 @@ export default function ReportesPage() {
                 
                 if (movsError) console.error("Error fetching movs:", movsError);
                 if (movs) setMovimientos(movs as any);
+
+                // 3. Balance General
+                const { data: cts } = await supabase.from('tesoreria_cuentas').select('saldo');
+                if (cts) {
+                    setCapitalDisponible(cts.reduce((acc, c) => acc + Number(c.saldo), 0));
+                }
+
+                const { data: dds } = await supabase.from('deudas_empresa').select('saldo_pendiente, estado').neq('estado', 'Pagado');
+                if (dds) {
+                    setDeudasTotales(dds.reduce((acc, d) => acc + Number(d.saldo_pendiente), 0));
+                }
+
+                const { data: reps } = await supabase.from('reparaciones').select('saldo_pendiente').gt('saldo_pendiente', 0);
+                if (reps) {
+                    setSaldosCobrar(reps.reduce((acc, r) => acc + Number(r.saldo_pendiente), 0));
+                }
             } catch (e) {
                 console.error(e);
             } finally {
@@ -167,6 +189,36 @@ export default function ReportesPage() {
           <p className="text-[10px] font-black uppercase tracking-[0.4em] text-blue-600 mb-2">Inteligencia de Negocios</p>
           <h1 className="text-5xl font-black text-neutral-900 dark:text-white tracking-tighter uppercase italic">Analítica Corporativa</h1>
         </div>
+      </div>
+
+      {/* Corporate Dashboard Stats (Balance General) */}
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+          <div className="p-8 bg-neutral-900 dark:bg-neutral-900 rounded-[2.5rem] text-white shadow-2xl relative overflow-hidden group">
+              <p className="text-[10px] font-black uppercase text-neutral-400 tracking-widest mb-1 relative z-10">Capital Disponible (Vault)</p>
+              <h2 className="text-4xl font-black tracking-tighter relative z-10">${capitalDisponible.toFixed(2)}</h2>
+              <div className="mt-4 flex items-center gap-2 text-emerald-400 font-bold text-[10px] relative z-10 uppercase tracking-widest">
+                  <CheckCircle2 className="w-3.5 h-3.5" /> Efectivo + Bancos
+              </div>
+              <Building2 className="absolute -bottom-4 -right-4 w-24 h-24 text-white/5 group-hover:scale-110 transition-transform" />
+          </div>
+
+          <div className="p-8 bg-white dark:bg-neutral-900 rounded-[2.5rem] border border-neutral-100 dark:border-neutral-800 shadow-xl border-b-4 border-b-blue-500">
+              <p className="text-[10px] font-black uppercase text-neutral-400 tracking-widest mb-1">Cuentas por Cobrar</p>
+              <h2 className="text-4xl font-black text-neutral-900 dark:text-white tracking-tighter">${saldosCobrar.toFixed(2)}</h2>
+              <p className="mt-4 text-[10px] font-bold text-blue-500 uppercase italic">Capital en reparaciones</p>
+          </div>
+
+          <div className="p-8 bg-white dark:bg-neutral-900 rounded-[2.5rem] border border-neutral-100 dark:border-neutral-800 shadow-xl border-b-4 border-b-rose-500">
+              <p className="text-[10px] font-black uppercase text-neutral-400 tracking-widest mb-1">Pasivos Totales (Deudas)</p>
+              <h2 className="text-4xl font-black text-rose-600 tracking-tighter">${deudasTotales.toFixed(2)}</h2>
+              <p className="mt-4 text-[10px] font-bold text-rose-400 uppercase italic">Obligaciones pendientes</p>
+          </div>
+
+          <div className="p-8 bg-black dark:bg-neutral-800 rounded-[2.5rem] shadow-2xl">
+              <p className="text-[10px] font-black uppercase text-neutral-400 tracking-widest mb-1">Liquidez Total Efectiva</p>
+              <h2 className="text-4xl font-black text-white italic tracking-tighter">${(capitalDisponible + saldosCobrar - deudasTotales).toFixed(2)}</h2>
+              <p className="mt-4 text-[10px] font-bold text-emerald-500 uppercase italic">(Activos - Pasivos)</p>
+          </div>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">

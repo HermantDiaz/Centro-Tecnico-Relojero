@@ -4,7 +4,7 @@ import { useEffect, useState, useCallback } from "react";
 import { useAuth } from "@/components/AuthProvider";
 import { useCaja } from "@/hooks/useCaja";
 import { supabase } from "@/lib/supabase";
-import { HandCoins, Plus, Wallet, X, Receipt } from "lucide-react";
+import { HandCoins, Plus, Wallet, X, Receipt, History } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useAudit } from "@/hooks/useAudit";
 
@@ -40,6 +40,8 @@ export default function DeudasPage() {
   const [isDeudaModalOpen, setIsDeudaModalOpen] = useState(false);
   const [nuevaDeuda, setNuevaDeuda] = useState({ acreedor: "", monto: "", tipo: "Proveedor" as any, vencimiento: "", notas: "" });
   const [pagoDeudaData, setPagoDeudaData] = useState<{deudaId: string, monto: string, origen: string, acreedor: string, saldoMaximo: number} | null>(null);
+  
+  const [historialDeudaData, setHistorialDeudaData] = useState<{deuda: DeudaEmpresa, abonos: any[]} | null>(null);
 
   const fetchData = useCallback(async () => {
     // 1. Cuentas Tesorería
@@ -148,6 +150,22 @@ export default function DeudasPage() {
       }
   };
 
+  const handleVerHistorial = async (d: DeudaEmpresa) => {
+      try {
+          const { data, error } = await supabase
+              .from('caja_movimientos')
+              .select('*')
+              .ilike('concepto', `%PAGO DEUDA: ${d.acreedor}%`)
+              .order('created_at', { ascending: false });
+          
+          if (error) throw error;
+          
+          setHistorialDeudaData({ deuda: d, abonos: data || [] });
+      } catch (e: any) { 
+          alert("Error cargando historial: " + e.message); 
+      }
+  };
+
   return (
     <div className="max-w-7xl mx-auto space-y-8 animate-in fade-in duration-700 pb-20">
       <div className="flex flex-col md:flex-row md:items-end justify-between gap-6 pb-6 border-b border-neutral-100 dark:border-neutral-900 overflow-x-hidden">
@@ -195,15 +213,24 @@ export default function DeudasPage() {
                                     <p className="text-lg font-black text-rose-600 italic tracking-tighter">${Number(d.saldo_pendiente).toFixed(2)}</p>
                                     <p className="text-[8px] text-neutral-400 font-black uppercase">Original: ${Number(d.monto_total).toFixed(2)}</p>
                                   </div>
-                                  {d.estado !== 'Saldada' && (
+                                  <div className="flex gap-2">
                                       <button 
-                                        onClick={() => setPagoDeudaData({deudaId: d.id, monto: "", origen: "Efectivo", acreedor: d.acreedor, saldoMaximo: Number(d.saldo_pendiente)})} 
-                                        className="p-3 bg-neutral-100 hover:bg-emerald-500 hover:text-white dark:bg-neutral-800 text-neutral-600 dark:text-neutral-400 dark:hover:bg-emerald-500 dark:hover:text-white rounded-[1rem] transition-all shadow-sm group relative"
-                                        title="Abonar a Deuda"
+                                        onClick={() => handleVerHistorial(d)} 
+                                        className="p-3 bg-neutral-100 hover:bg-blue-500 hover:text-white dark:bg-neutral-800 text-neutral-600 dark:text-neutral-400 dark:hover:bg-blue-500 dark:hover:text-white rounded-[1rem] transition-all shadow-sm group relative"
+                                        title="Ver historial de abonos"
                                       >
-                                          💸
+                                          <History className="w-5 h-5" />
                                       </button>
-                                  )}
+                                      {d.estado !== 'Saldada' && (
+                                          <button 
+                                            onClick={() => setPagoDeudaData({deudaId: d.id, monto: "", origen: "Efectivo", acreedor: d.acreedor, saldoMaximo: Number(d.saldo_pendiente)})} 
+                                            className="p-3 bg-neutral-100 hover:bg-emerald-500 hover:text-white dark:bg-neutral-800 text-neutral-600 dark:text-neutral-400 dark:hover:bg-emerald-500 dark:hover:text-white rounded-[1rem] transition-all shadow-sm group relative"
+                                            title="Abonar a Deuda"
+                                          >
+                                              💸
+                                          </button>
+                                      )}
+                                  </div>
                               </div>
                           </td>
                           <td className="px-10 py-7 text-right w-24">
@@ -326,6 +353,46 @@ export default function DeudasPage() {
                           <button onClick={() => setPagoDeudaData(null)} className="flex-1 py-4 bg-neutral-100 dark:bg-neutral-800 text-neutral-500 text-[10px] uppercase tracking-widest font-black rounded-[2rem] hover:bg-neutral-200 transition-colors cursor-pointer">Cancelar</button>
                           <button onClick={handleAbonarDeuda} className="flex-1 py-4 bg-emerald-500 text-white text-[10px] uppercase tracking-widest font-black rounded-[2rem] shadow-xl shadow-emerald-500/20 active:scale-95 transition-all cursor-pointer">Pagar</button>
                       </div>
+                  </div>
+              </div>
+          </div>
+      )}
+
+      {/* Modal Historial Abonos */}
+      {historialDeudaData && (
+          <div onClick={() => setHistorialDeudaData(null)} className="fixed inset-0 bg-black/70 backdrop-blur-md z-50 flex items-center justify-center p-4 animate-in fade-in duration-300">
+              <div onClick={(e) => e.stopPropagation()} className="bg-white dark:bg-neutral-900 w-full max-w-xl rounded-[3rem] p-10 relative overflow-hidden shadow-2xl border border-neutral-100 dark:border-neutral-800 animate-in zoom-in-95 duration-300">
+                  <button onClick={() => setHistorialDeudaData(null)} className="absolute top-6 right-6 p-2 text-neutral-400 hover:text-black dark:hover:text-white hover:bg-neutral-100 dark:hover:bg-neutral-800 rounded-full transition-all z-[60]">
+                      <X className="w-5 h-5" />
+                  </button>
+                  <div className="flex items-center gap-4 mb-8 border-b pb-4 border-neutral-50 dark:border-neutral-800">
+                      <div className="w-12 h-12 bg-blue-500 text-white rounded-2xl flex items-center justify-center font-black shadow-lg shadow-blue-500/30">
+                          <History className="w-6 h-6" />
+                      </div>
+                      <div>
+                        <h3 className="text-xl font-black text-neutral-900 dark:text-white uppercase italic tracking-tighter leading-none">Historial de Abonos</h3>
+                        <p className="text-[9px] font-bold text-neutral-400 uppercase tracking-widest mt-1">{historialDeudaData.deuda.acreedor}</p>
+                      </div>
+                  </div>
+                  
+                  <div className="max-h-[60vh] overflow-y-auto custom-scrollbar pr-2 space-y-4">
+                      {historialDeudaData.abonos.length === 0 ? (
+                          <div className="py-10 text-center text-neutral-400 italic font-medium">
+                              No hay abonos registrados para esta deuda.
+                          </div>
+                      ) : (
+                          historialDeudaData.abonos.map((abono, idx) => (
+                              <div key={idx} className="p-5 bg-neutral-50 dark:bg-neutral-800/50 rounded-3xl border border-neutral-100 dark:border-neutral-800 flex items-center justify-between">
+                                  <div>
+                                      <p className="text-sm font-black text-neutral-900 dark:text-white uppercase">{new Date(abono.created_at).toLocaleDateString('es-ES', { day: '2-digit', month: 'long', year: 'numeric' })}</p>
+                                      <p className="text-[10px] text-neutral-400 font-bold uppercase tracking-widest mt-1">Origen: {abono.metodo_pago}</p>
+                                  </div>
+                                  <div className="text-right">
+                                      <p className="text-xl font-black text-emerald-500 italic">-${Number(abono.monto).toFixed(2)}</p>
+                                  </div>
+                              </div>
+                          ))
+                      )}
                   </div>
               </div>
           </div>
