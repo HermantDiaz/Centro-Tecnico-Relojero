@@ -38,8 +38,10 @@ El sistema utiliza un modelo de **Control de Acceso Basado en Roles (RBAC)** imp
 1.  **Nivel de Interfaz (Frontend):**
     - El `Sidebar` oculta módulos no autorizados.
     - Las páginas protegidas (ej. `/deudas`) contienen un `useEffect` que redirige al Home si el usuario no tiene privilegios de `admin`.
-2.  **Nivel de Datos (Backend - WIP):**
-    - Se recomienda el uso de **Row Level Security (RLS)** en Supabase para asegurar que un Técnico no pueda modificar tablas financieras directamente vía API, incluso si conoce la URL.
+2.  **Nivel de Datos (Backend):**
+    - **Row Level Security (RLS)** activadas en tablas operativas.
+    - Se integra el hook `useAudit` para registrar de manera inmutable el `usuario_email` y el `user_id` ante acciones sensibles (ej. Pagos de deudas, Anulaciones).
+    - **Escudo Antifraude de Caja:** Desviaciones entre el capital físico (`montoCierreReal`) y el software desencadenan requerimientos mandatorios (Notas Inviolables de Justificación).
 
 ## 📁 Organización de Archivos
 
@@ -55,5 +57,6 @@ src/
 
 ## 📉 Patrones de Diseño
 - **Client-Side Rendering (CSR):** La mayoría de las páginas usan `"use client"` para permitir interacciones rápidas y estados de carga fluidos.
+- **Topologías Financieras Reactivas:** El uso concurrente de `useMemo` anidado con ciclos de fechas limitados (Memoria topada a 12 Meses base) previene "Browser Memory Leaks" al escalar, actualizando gráficos sin re-requestear al servidor cada segundo.
 - **Atomic Design (Simplificado):** Los componentes se agrupan por su función (UI, Auth, Layout).
-- **Integridad Transaccional**: Los campos como `saldo_pendiente` se calculan en el cliente y se validan en el servidor para asegurar que nunca existan descuadres financieros.
+- **Integridad Transaccional**: Los campos como `saldo_pendiente` se calculan en el cliente y se validan en el servidor para asegurar que nunca existan descuadres financieros; anulaciones de movimientos monetarios generan transacciones reversas (+ y -) de compensación antes de eliminaciones absolutas.

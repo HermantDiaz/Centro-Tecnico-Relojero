@@ -1,5 +1,5 @@
 # ⌚ RELOJERÍA IA - Sistema Administrativo
-**Estado Actual:** `v10.8 - TITANIUM-STABLE` (Estabilidad de Sesión y Hidratación garantizada)
+**Estado Actual:** `v11.0 - PLATINUM-RELEASE` (Módulos Financieros, Auditoría Antifraude y Analítica Completados en Producción)
 
 ## 🚀 Tecnologías Principales
 
@@ -14,9 +14,11 @@
 - `src/app/`: Rutas y páginas de la aplicación (Next.js App Router).
   - `/admin/usuarios`: Gestión de equipo y roles.
   - `/inventario`: Control de stock, repuestos y categorías.
-  - `/reparaciones`: Seguimiento de servicios técnicos (En desarrollo).
-  - `/finanzas`: Ingresos, gastos y flujo de caja (En desarrollo).
-  - `/deudas`: Cuentas por cobrar y pagar (En desarrollo).
+  - `/reparaciones`: Seguimiento de servicios técnicos, CRM de clientes y estado en taller.
+  - `/caja`: Control de Caja Diaria, blindaje antifraude y traslados de efectivo/bancos.
+  - `/finanzas` (Deprecated): Integrado y absorbido por `/caja` y `/reportes`.
+  - `/deudas`: Cuentas por cobrar y pagar sincronizadas al Flujo de Caja.
+  - `/reportes`: BI (Business Intelligence) Reactivo, Top de Ingresos/Gastos con filtros históricos y optimización de memoria a 12 meses.
 - `src/components/`: Componentes React reutilizables (Sidebar, AuthProvider, etc.).
 - `src/lib/`: Utilidades y configuraciones (Supabase client).
 - `docs/`: Documentación técnica detallada.

@@ -1,6 +1,6 @@
 # ⌚ PRD: Sistema Administrativo RELOJERÍA IA
 
-**Estado:** Versión 1.2 (Estabilizada & Profesionalizada)  
+**Estado:** Versión 2.0 (Release Candidate / Completa)  
 **Documento de Referencia:** [Matriz de Trazabilidad (RTM)](file:///d:/Proyecto%20IA/RELOJERIA%20IA/docs/RTM.md)
 
 ---
@@ -30,8 +30,9 @@ Digitalizar y automatizar la gestión operativa de CTR Relojería, resolviendo l
 | **REQ-FUN-007** | Historial de Eventos | Registro de auditoría para cada cambio de estado o nota en una reparación. | Todos | Alta | Botón de "Historial" que despliega un modal con la traza de eventos y autor. |
 | **REQ-FUN-008** | Integración de Insumos | Capacidad de descontar repuestos del inventario al aplicarlos a una reparación. | Técnico, Admin | Alta | Selección de insumos desde el inventario; actualización automática de stock al vincular. |
 | **REQ-FUN-009** | Gestión de Garantías | Identificación automática de re-ingresos para control de calidad. | Todos | Alta | Campo "Veces en Garantía" visible; alertas si el ticket es reincidente. |
-| **REQ-FUN-010** | Cierre de Caja Diario | Proceso mandatorio de arqueo y cierre al finalizar el día operativo. | Admin, Recepción | Crítica | El sistema no permite iniciar nueva jornada sin realizar el cierre anterior. |
-| **REQ-FUN-011** | Registro Transaccional | Categorización de Ingresos y Egresos (Insumos, Gastos, Ventas). | Admin, Recepción | Alta | Trazabilidad de cada dólar que entra o sale con causa y usuario responsable. |
+| **REQ-FUN-010** | Cierre de Caja Diario | Proceso mandatorio de arqueo y cierre al finalizar el día operativo. | Admin, Recepción | Crítica | El sistema no permite iniciar nueva jornada sin realizar el cierre anterior. Validaciones estrictas de notas por faltantes. |
+| **REQ-FUN-011** | Registro Transaccional | Categorización de Ingresos y Egresos (Insumos, Gastos, Ventas). | Admin, Recepción | Alta | Trazabilidad de cada flujo que entra o sale con identificadores numéricos de recibo extraídos del backend. |
+| **REQ-FUN-012** | Inteligencia Financiera Reactiva | Reportes y rankings dinámicos en el Dashboard y Módulo de Reportes. | Admin | Alta | Tarjetas "Top Ingresos/Gastos" se actualizan instantáneamente respetando los filtros de 7, 30 días o ciclo anual. |
 
 ### 3.2. Requerimientos No Funcionales (NFC)
 | ID | Nombre | Descripción | Actores | Prioridad | Criterios de Aceptación |
@@ -69,16 +70,18 @@ Digitalizar y automatizar la gestión operativa de CTR Relojería, resolviendo l
 | **REQ-SEC-002** | Cifrado en Tránsito (SSL) | Garantía de que toda la comunicación entre cliente y servidor es vía HTTPS. | Sistema | Alta | Redirección automática de HTTP a HTTPS en todos los endpoints de la App y API. |
 | **REQ-SEC-003** | Gestión de Sesión | Expiración de tokens de acceso y renovación segura (JWT Refresh). | Sistema | Media | El usuario es redirigido al login tras un periodo de inactividad prolongado (config Supabase). |
 | **REQ-SEC-004** | Protección CSRF/XSS | Prevención de ataques mediante el uso de frames seguros y saneamiento de inputs. | Sistema | Alta | Uso de `cookies httpOnly` y políticas de seguridad de contenido (CSP) por defecto de Next.js. |
+| **REQ-SEC-005** | Prevención de Fraude en Caja | Bloquear escapes del usuario si reportan un arqueo real menor al del sistema. | Administrador, Sistema | Crítica | Faltantes en el flujo de caja exigen obligatoriamente una nota justificativa almacenada en la sesión. |
 
 ### 3.7. Requerimientos de Fiabilidad y Mantenimiento (REL)
 | ID | Nombre | Descripción | Actores | Prioridad | Criterios de Aceptación |
 | :--- | :--- | :--- | :--- | :---: | :--- |
 | **REQ-REL-001** | Backup Automático | Copias de seguridad diarias de la base de datos PostgreSQL. | Sistema | Alta | Capacidad de restauración a un punto en el tiempo (PITR) de hasta 7 días. |
 | **REQ-REL-002** | Alta Disponibilidad | Garantía de tiempo en línea superior al 99.9%. | Sistema | Media | El sistema debe estar accesible sin interrupciones críticas durante el horario comercial. |
+| **REQ-REL-003** | Auto-Limitación de Memoria | Restricción del Payload histórico para evitar cuellos de botella en Browser RAM. | Sistema | Crítica | La extracción de Base de Datos para el BI tiene un límite natural (fetch) fijado en 12 meses. |
 
 ---
 
-## 🛠️ 4. Requerimientos de Reparaciones (REP)
+## 🛠️ 4. Requerimientos de Reparaciones (REP) y Deudas (DEU)
 
 | ID | Nombre | Descripción | Actores | Prioridad | Criterios de Aceptación |
 | :--- | :--- | :--- | :--- | :---: | :--- |
@@ -88,6 +91,7 @@ Digitalizar y automatizar la gestión operativa de CTR Relojería, resolviendo l
 | **REQ-REP-004** | Control de Abonos | Registro de anticipos y cálculo automático de saldo. | Recepción | Alta | El saldo se actualiza al registrar abonos; validación de total vs saldo. |
 | **REQ-REP-005** | Ticket de Servicio | Generación de comprobante basado en el "Número de Recibo". | Recepción | Alta | El número de recibo debe ser coincidente con el sistema actual. |
 | **REQ-REP-006** | Notas e Historial | Registro de notas internas y contador de veces en garantía. | Técnico | Media | Identificación de reparaciones recurrentes para control de calidad. |
+| **REQ-DEU-001** | Cuentas por Cobrar/Pagar | Sistema Dual para controlar obligaciones financieras con proveedores. | Admin | Alta | Dashboard vinculado detecta impagos; los abonos se envían a la Caja Central sin impactar la utilidad. |
 
 ---
 
