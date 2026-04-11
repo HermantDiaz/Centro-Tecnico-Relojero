@@ -15,11 +15,14 @@ export default function Dashboard() {
     reparacionesActivas: 0,
     ingresosMes: 0,
     flujoCaja: 0,
+    deudasTotales: 0,
     reparacionesAtrasadas: 0,
     reparacionesProximas: 0
   });
   const [actividad, setActividad] = useState<any[]>([]);
   const [reparacionesRecientes, setReparacionesRecientes] = useState<any[]>([]);
+  const [topIngresos, setTopIngresos] = useState<any[]>([]);
+  const [topEgresos, setTopEgresos] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const router = useRouter();
 
@@ -80,14 +83,56 @@ export default function Dashboard() {
         return days >= 0 && days <= 2;
       }).length || 0;
 
+      // 5. Flujo de Caja (Tesoreria)
+      const { data: cts } = await supabase.from('tesoreria_cuentas').select('saldo');
+      const totalCaja = (cts || []).reduce((acc, c) => acc + Number(c.saldo), 0) || 0;
+
+      // 6. Ingresos del Mes y Top Movimientos Hoy
+      const hoy = new Date();
+      const inicioMes = new Date(hoy.getFullYear(), hoy.getMonth(), 1).toISOString();
+      const { data: movs } = await supabase
+        .from('caja_movimientos')
+        .select('tipo, monto, concepto, es_traslado, created_at')
+        .gte('created_at', inicioMes);
+
+      let ingresosMes = 0;
+      let ingresosMesPasado = 0; // Opcional, pero para 0% lo dejaremos simulado o calculable
+
+      const movimientosMes = movs || [];
+      const statsIngresos = new Map<string, number>();
+      const statsEgresos = new Map<string, number>();
+
+      movimientosMes.forEach((m: any) => {
+        if (m.es_traslado) return;
+        if (m.tipo === 'ingreso') {
+          ingresosMes += Number(m.monto);
+          statsIngresos.set(m.concepto, (statsIngresos.get(m.concepto) || 0) + Number(m.monto));
+        } else if (m.tipo === 'egreso') {
+          statsEgresos.set(m.concepto, (statsEgresos.get(m.concepto) || 0) + Number(m.monto));
+        }
+      });
+
+      // 7. Total Deudas
+      const { data: dds } = await supabase.from('deudas_empresa').select('saldo_pendiente').neq('estado', 'Pagado');
+      const totalDeudas = (dds || []).reduce((acc, d) => acc + Number(d.saldo_pendiente), 0);
+
+      // Ordenar y tomar el Top 3
+      const descOrder = (a: any, b: any) => b.monto - a.monto;
+      const tIngresos = Array.from(statsIngresos, ([concepto, monto]) => ({ concepto, monto })).sort(descOrder).slice(0, 3);
+      const tEgresos = Array.from(statsEgresos, ([concepto, monto]) => ({ concepto, monto })).sort(descOrder).slice(0, 3);
+
+      setTopIngresos(tIngresos);
+      setTopEgresos(tEgresos);
+
       setStats({
         stockBajo: stockBajoCount,
         valuacion: totalValuacion,
         reparacionesActivas: safeRepData.length,
         reparacionesAtrasadas: atrasadas,
         reparacionesProximas: proximas,
-        ingresosMes: 0,
-        flujoCaja: 0
+        ingresosMes: ingresosMes,
+        flujoCaja: totalCaja,
+        deudasTotales: totalDeudas
       });
 
       if (recents) setActividad(recents);
@@ -125,16 +170,16 @@ export default function Dashboard() {
             <Plus className="w-4 h-4" /> Nueva Reparación
           </button>
           <button 
-            onClick={() => alert("Módulo de Finanzas: El registro de ingresos estará disponible próximamente. 💰")}
+            onClick={() => router.push('/caja')}
             className="whitespace-nowrap px-4 py-2.5 bg-white dark:bg-neutral-800 border border-neutral-200 dark:border-neutral-800 text-neutral-900 dark:text-white rounded-xl font-bold text-xs md:text-sm hover:bg-neutral-50 dark:hover:bg-neutral-700 transition-all shadow-sm min-w-max"
           >
-            💰 Registrar Ingreso
+            💰 Abrir Caja Diaria
           </button>
           <button 
-            onClick={() => alert("Módulo de Finanzas: El registro de gastos estará disponible próximamente. 📈")}
-            className="whitespace-nowrap px-4 py-2.5 bg-red-50 dark:bg-red-950/30 border border-red-100 dark:border-red-900/50 text-red-600 dark:text-red-400 rounded-xl font-bold text-xs md:text-sm hover:bg-red-100 dark:hover:bg-red-900/50 transition-all shadow-sm min-w-max"
+            onClick={() => router.push('/reportes')}
+            className="whitespace-nowrap px-4 py-2.5 bg-neutral-900 dark:bg-blue-900/30 border border-neutral-800 dark:border-blue-900/50 text-white dark:text-blue-400 rounded-xl font-bold text-xs md:text-sm hover:bg-neutral-800 dark:hover:bg-blue-900/50 transition-all shadow-sm min-w-max"
           >
-            📉 Registrar Gasto
+            📈 Ver Analíticas
           </button>
         </div>
       </section>
@@ -151,7 +196,7 @@ export default function Dashboard() {
             {rol === 'admin' && (
               <div className="p-6 bg-white dark:bg-neutral-900 border border-neutral-200 dark:border-neutral-800 rounded-2xl shadow-sm">
                 <p className="text-xs font-bold text-neutral-500 dark:text-neutral-400 uppercase tracking-wider mb-2">Flujo de Caja</p>
-                <p className="text-2xl font-black text-neutral-900 dark:text-white">$0.00</p>
+                <p className="text-2xl font-black text-neutral-900 dark:text-white">${stats.flujoCaja.toFixed(2)}</p>
                 <div className="mt-2 text-xs text-neutral-500 italic">Efectivo total disponible</div>
               </div>
             )}
@@ -160,8 +205,8 @@ export default function Dashboard() {
             {rol === 'admin' && (
               <div className="p-6 bg-white dark:bg-neutral-900 border border-neutral-200 dark:border-neutral-800 rounded-2xl shadow-sm">
                 <p className="text-xs font-bold text-neutral-500 dark:text-neutral-400 uppercase tracking-wider mb-2">Ingresos Mes</p>
-                <p className="text-2xl font-black text-neutral-900 dark:text-white">$0.00</p>
-                <div className="mt-2 text-xs text-green-500 font-medium">↑ 0% vs mes pasado</div>
+                <p className="text-2xl font-black text-neutral-900 dark:text-white">${stats.ingresosMes.toFixed(2)}</p>
+                <div className="mt-2 text-xs text-green-500 font-medium">Acumulado mensual</div>
               </div>
             )}
             
@@ -200,11 +245,11 @@ export default function Dashboard() {
 
             {/* Deudas Totales (Solo Admin) */}
             {rol === 'admin' && (
-              <div className="p-6 bg-white dark:bg-neutral-900 border border-neutral-200 dark:border-neutral-800 rounded-2xl shadow-sm">
+              <Link href="/deudas" className="p-6 bg-white dark:bg-neutral-900 border border-neutral-200 dark:border-neutral-800 rounded-2xl shadow-sm hover:scale-[1.02] transition-all group block">
                 <p className="text-xs font-bold text-neutral-500 dark:text-neutral-400 uppercase tracking-wider mb-2">Total Deudas</p>
-                <p className="text-2xl font-black text-neutral-900 dark:text-white">$0.00</p>
+                <p className="text-2xl font-black text-neutral-900 dark:text-white">${stats.deudasTotales.toFixed(2)}</p>
                 <div className="mt-2 text-xs text-amber-500 font-medium">Por cobrar y pagar</div>
-              </div>
+              </Link>
             )}
           </div>
 
@@ -260,17 +305,35 @@ export default function Dashboard() {
                 <div className="space-y-6">
                   {/* Top Ingresos */}
                   <div>
-                    <p className="text-xs font-black text-neutral-400 uppercase mb-3 tracking-widest">Ingresos Recientes</p>
+                    <p className="text-xs font-black text-neutral-400 uppercase mb-3 tracking-widest">Top Ingresos (Mes)</p>
                     <div className="space-y-3">
-                      <p className="text-sm text-neutral-500 italic">No se han registrado ingresos hoy</p>
+                      {topIngresos.length === 0 ? (
+                        <p className="text-sm text-neutral-500 italic">No hay ingresos registrados este mes</p>
+                      ) : (
+                        topIngresos.map((ing, i) => (
+                          <div key={`ing-${i}`} className="flex justify-between items-center text-sm">
+                            <span className="font-bold text-neutral-700 dark:text-neutral-300 truncate pr-2" title={ing.concepto}>{ing.concepto}</span>
+                            <span className="font-black text-emerald-600">${ing.monto.toFixed(2)}</span>
+                          </div>
+                        ))
+                      )}
                     </div>
                   </div>
 
                   {/* Top Egresos */}
                   <div>
-                    <p className="text-xs font-black text-neutral-400 uppercase mb-3 tracking-widest">Egresos recurrentes</p>
+                    <p className="text-xs font-black text-neutral-400 uppercase mb-3 tracking-widest">Top Egresos (Mes)</p>
                     <div className="space-y-3">
-                      <p className="text-sm text-neutral-500 italic">No se han registrado gastos hoy</p>
+                      {topEgresos.length === 0 ? (
+                        <p className="text-sm text-neutral-500 italic">No hay egresos registrados este mes</p>
+                      ) : (
+                        topEgresos.map((egr, i) => (
+                          <div key={`egr-${i}`} className="flex justify-between items-center text-sm">
+                            <span className="font-bold text-neutral-700 dark:text-neutral-300 truncate pr-2" title={egr.concepto}>{egr.concepto}</span>
+                            <span className="font-black text-rose-600">${egr.monto.toFixed(2)}</span>
+                          </div>
+                        ))
+                      )}
                     </div>
                   </div>
                 </div>

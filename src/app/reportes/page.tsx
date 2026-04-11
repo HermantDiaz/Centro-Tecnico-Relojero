@@ -26,6 +26,7 @@ interface Movimiento {
     monto: number;
     es_traslado: boolean;
     created_at: string;
+    concepto?: string;
 }
 
 export default function ReportesPage() {
@@ -63,7 +64,7 @@ export default function ReportesPage() {
                 // 2. Fetch Movimientos para el P&L Global
                 const { data: movs, error: movsError } = await supabase
                     .from('caja_movimientos')
-                    .select('tipo, monto, es_traslado, created_at')
+                    .select('tipo, monto, es_traslado, created_at, concepto')
                     .order('created_at', { ascending: true });
                 
                 if (movsError) console.error("Error fetching movs:", movsError);
@@ -96,9 +97,27 @@ export default function ReportesPage() {
   }, [user, rol]);
 
   const globalStats = useMemo(() => {
-      const ingresos = movimientos.filter(m => m.tipo === 'ingreso' && !m.es_traslado).reduce((acc, m) => acc + Number(m.monto), 0);
-      const egresos = movimientos.filter(m => m.tipo === 'egreso' && !m.es_traslado).reduce((acc, m) => acc + Number(m.monto), 0);
-      return { ingresos, egresos, margen: ingresos - egresos };
+      const statsIngresos = new Map<string, number>();
+      const statsEgresos = new Map<string, number>();
+      let ingresos = 0;
+      let egresos = 0;
+
+      movimientos.forEach(m => {
+          if (m.es_traslado) return;
+          if (m.tipo === 'ingreso') {
+              ingresos += Number(m.monto);
+              if (m.concepto) statsIngresos.set(m.concepto, (statsIngresos.get(m.concepto) || 0) + Number(m.monto));
+          } else if (m.tipo === 'egreso') {
+              egresos += Number(m.monto);
+              if (m.concepto) statsEgresos.set(m.concepto, (statsEgresos.get(m.concepto) || 0) + Number(m.monto));
+          }
+      });
+
+      const descOrder = (a: any, b: any) => b.monto - a.monto;
+      const topIngresos = Array.from(statsIngresos, ([concepto, monto]) => ({ concepto, monto })).sort(descOrder).slice(0, 5);
+      const topEgresos = Array.from(statsEgresos, ([concepto, monto]) => ({ concepto, monto })).sort(descOrder).slice(0, 5);
+
+      return { ingresos, egresos, margen: ingresos - egresos, topIngresos, topEgresos };
   }, [movimientos]);
 
   const chartData = useMemo(() => {
@@ -255,6 +274,41 @@ export default function ReportesPage() {
                           <div className={`h-full rounded-full ${globalStats.margen >= 0 ? 'bg-blue-500' : 'bg-rose-500'}`} style={{ width: `${globalStats.ingresos > 0 ? Math.abs((globalStats.margen / globalStats.ingresos) * 100) : 0}%` }}></div>
                       </div>
                   </div>
+              </div>
+          </div>
+      </div>
+
+      {/* Top Movimientos */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mt-6 relative z-10 w-full mb-8">
+          <div className="bg-white dark:bg-neutral-900 rounded-[3rem] border border-neutral-100 dark:border-neutral-800 p-8 shadow-2xl">
+              <h4 className="text-xl font-black text-neutral-900 dark:text-white uppercase tracking-tighter italic mb-1">Top Ingresos</h4>
+              <p className="text-[10px] font-black text-neutral-400 uppercase tracking-widest mb-6">Conceptos más rentables (Histórico)</p>
+              <div className="space-y-4">
+                  {globalStats.topIngresos.map((ing, i) => (
+                      <div key={i} className="flex justify-between items-center bg-emerald-50/50 dark:bg-emerald-900/10 p-4 rounded-2xl border border-emerald-100 dark:border-emerald-900/30">
+                          <span className="font-bold text-sm text-neutral-700 dark:text-neutral-300 truncate pr-4">{ing.concepto}</span>
+                          <span className="font-black text-emerald-600 dark:text-emerald-400 shrink-0">${ing.monto.toFixed(2)}</span>
+                      </div>
+                  ))}
+                  {globalStats.topIngresos.length === 0 && (
+                      <div className="text-center py-8 text-neutral-400 italic text-sm font-medium">No hay datos suficientes.</div>
+                  )}
+              </div>
+          </div>
+          
+          <div className="bg-white dark:bg-neutral-900 rounded-[3rem] border border-neutral-100 dark:border-neutral-800 p-8 shadow-2xl">
+              <h4 className="text-xl font-black text-neutral-900 dark:text-white uppercase tracking-tighter italic mb-1">Top Gastos</h4>
+              <p className="text-[10px] font-black text-neutral-400 uppercase tracking-widest mb-6">Desglose de mayores egresos (Histórico)</p>
+              <div className="space-y-4">
+                  {globalStats.topEgresos.map((egr, i) => (
+                      <div key={i} className="flex justify-between items-center bg-rose-50/50 dark:bg-rose-900/10 p-4 rounded-2xl border border-rose-100 dark:border-rose-900/30">
+                          <span className="font-bold text-sm text-neutral-700 dark:text-neutral-300 truncate pr-4">{egr.concepto}</span>
+                          <span className="font-black text-rose-600 dark:text-rose-400 shrink-0">${egr.monto.toFixed(2)}</span>
+                      </div>
+                  ))}
+                  {globalStats.topEgresos.length === 0 && (
+                      <div className="text-center py-8 text-neutral-400 italic text-sm font-medium">No hay datos suficientes.</div>
+                  )}
               </div>
           </div>
       </div>

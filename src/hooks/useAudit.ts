@@ -2,8 +2,8 @@ import { useCallback } from 'react';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/components/AuthProvider';
 
-export type ModuloAuditoria = 'Autenticación' | 'Reparaciones' | 'Finanzas' | 'Seguridad' | 'Inventario';
-export type AccionAuditoria = 'LOGIN' | 'LOGOUT' | 'DELETE' | 'ANULACION' | 'CIERRE_CAJA' | 'REPORTE' | 'ALERTA';
+export type ModuloAuditoria = 'Autenticación' | 'Reparaciones' | 'Finanzas' | 'Seguridad' | 'Inventario' | 'Deudas';
+export type AccionAuditoria = 'LOGIN' | 'LOGOUT' | 'DELETE' | 'ANULACION' | 'CIERRE_CAJA' | 'REPORTE' | 'ALERTA' | 'CREADO' | 'PAGO DEUDA';
 
 export const useAudit = () => {
     const { user } = useAuth();

@@ -53,13 +53,19 @@ export const useCaja = () => {
       setSession(data);
     } catch (error) {
       console.error('Error fetching caja session:', error);
+      setSession(null);
     } finally {
       setLoading(false);
     }
   }, []);
 
   useEffect(() => {
-    if (user) fetchSession();
+    if (user) {
+      fetchSession();
+    } else {
+      setSession(null);
+      setLoading(false);
+    }
   }, [user, fetchSession]);
 
   const openCaja = async (monto: number, notas?: string) => {
