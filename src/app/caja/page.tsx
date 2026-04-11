@@ -72,6 +72,7 @@ export default function FinanzasPage() {
   const [isTrasladoModalOpen, setIsTrasladoModalOpen] = useState(false);
   const [montoApertura, setMontoApertura] = useState("");
   const [montoCierreReal, setMontoCierreReal] = useState("");
+  const [notasCierre, setNotasCierre] = useState("");
   
   const [nuevoIngreso, setNuevoIngreso] = useState({ monto: "", concepto: "", categoria: "Ventas", metodo_pago: "Efectivo" as any });
   const [nuevoGasto, setNuevoGasto] = useState({ monto: "", concepto: "", categoria: "Otros", metodo_pago: "Efectivo" as any, referencia_bancaria: "" });
@@ -145,7 +146,7 @@ export default function FinanzasPage() {
 
   const handleAddIngreso = async () => {
     try {
-      await addMovimiento({
+      const data = await addMovimiento({
         tipo: 'ingreso',
         monto: Number(nuevoIngreso.monto),
         utilidad_neta: Number(nuevoIngreso.monto) * 0.45,
@@ -156,7 +157,7 @@ export default function FinanzasPage() {
       });
       // Set Receipt Info
       setComprobanteData({
-          numero_recibo: Math.floor(Math.random() * 90000) + 10000 + "", // Simulating an ID
+          numero_recibo: data?.id ? data.id.split('-')[0].toUpperCase() : Math.floor(Math.random() * 90000) + 10000 + "",
           cliente_nombre: "PÚBLICO EN GENERAL",
           monto: Number(nuevoIngreso.monto),
           metodo_pago: nuevoIngreso.metodo_pago,
@@ -168,7 +169,7 @@ export default function FinanzasPage() {
       setShowComprobante(true);
       setNuevoIngreso({ monto: "", concepto: "", categoria: "Ventas", metodo_pago: "Efectivo" });
       fetchData();
-      await logEvent('LOGIN', 'Finanzas', `Ingreso manual registrado por $${nuevoIngreso.monto}. Concepto: ${nuevoIngreso.concepto}`);
+      await logEvent('CREADO', 'Finanzas', `Ingreso manual registrado por $${nuevoIngreso.monto}. Concepto: ${nuevoIngreso.concepto}`);
     } catch (e: any) { alert(e.message); }
   };
 
@@ -226,10 +227,16 @@ export default function FinanzasPage() {
 
   const handleCloseCaja = async () => {
     if (!session) return;
+    const real = Number(montoCierreReal);
+    if (real < session.monto_cierre_esperado && !notasCierre.trim()) {
+        alert("ALERTA DE DESCUADRE: El dinero físico es menor al teórico. Debes ingresar una Nota/Motivo para justificar el faltante ante auditoría.");
+        return;
+    }
     try {
-      await closeCaja(session.id, Number(montoCierreReal));
-      await logEvent('CIERRE_CAJA', 'Finanzas', `Cierre de caja ejecutado. Esperado: $${session.monto_cierre_esperado}. Real: $${montoCierreReal}`);
+      await closeCaja(session.id, real, notasCierre);
+      await logEvent('CIERRE_CAJA', 'Finanzas', `Cierre de caja ejecutado. Esperado: $${session.monto_cierre_esperado}. Real: $${montoCierreReal}. ${notasCierre ? `Nota: ${notasCierre}` : ''}`);
       setIsCierreModalOpen(false);
+      setNotasCierre("");
       fetchData();
     } catch (e: any) { alert(e.message); }
   };
@@ -694,6 +701,19 @@ export default function FinanzasPage() {
                             autoFocus
                           />
                       </div>
+
+                      {Number(montoCierreReal) < (session?.monto_cierre_esperado || 0) && (
+                          <div className="space-y-4 text-left animate-in fade-in slide-in-from-top-4 duration-300">
+                              <label className="block text-[10px] font-black uppercase tracking-widest text-rose-500">Motivo del Faltante (Obligatorio)</label>
+                              <textarea 
+                                className="w-full bg-rose-50 dark:bg-rose-900/20 border-none rounded-2xl p-4 font-medium text-sm focus:ring-2 ring-rose-500/50"
+                                placeholder="Ej: Hubo un pago de $20 a un proveedor extra..."
+                                value={notasCierre}
+                                onChange={(e) => setNotasCierre(e.target.value)}
+                                rows={2}
+                              />
+                          </div>
+                      )}
 
                       <div className="pt-4 space-y-3">
                         <button onClick={handleCloseCaja} className="w-full py-5 bg-black dark:bg-white text-white dark:text-black rounded-[2rem] font-black text-xs uppercase tracking-[0.2em] shadow-2xl active:scale-95 transition-all">Finalizar y Guardar</button>

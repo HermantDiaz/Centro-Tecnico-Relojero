@@ -61,10 +61,15 @@ export default function ReportesPage() {
                 if (sesError) console.error("Error fetching sesiones:", sesError);
                 if (ses) setSesiones(ses as any);
 
-                // 2. Fetch Movimientos para el P&L Global
+                // 2. Fetch Movimientos para el P&L Global (Límite 12 meses por seguridad)
+                const limiteDoceMeses = new Date();
+                limiteDoceMeses.setFullYear(limiteDoceMeses.getFullYear() - 1);
+                limiteDoceMeses.setDate(1);
+
                 const { data: movs, error: movsError } = await supabase
                     .from('caja_movimientos')
                     .select('tipo, monto, es_traslado, created_at, concepto')
+                    .gte('created_at', limiteDoceMeses.toISOString())
                     .order('created_at', { ascending: true });
                 
                 if (movsError) console.error("Error fetching movs:", movsError);
@@ -102,8 +107,16 @@ export default function ReportesPage() {
       let ingresos = 0;
       let egresos = 0;
 
+      let limitDate = new Date(0);
+      const now = new Date();
+      if (timeFilter === '7d') limitDate = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 6);
+      if (timeFilter === '30d') limitDate = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 29);
+      if (timeFilter === '12m') limitDate = new Date(now.getFullYear(), now.getMonth() - 11, 1);
+
       movimientos.forEach(m => {
           if (m.es_traslado) return;
+          if (timeFilter !== 'all' && new Date(m.created_at) < limitDate) return;
+          
           if (m.tipo === 'ingreso') {
               ingresos += Number(m.monto);
               if (m.concepto) statsIngresos.set(m.concepto, (statsIngresos.get(m.concepto) || 0) + Number(m.monto));
@@ -118,7 +131,7 @@ export default function ReportesPage() {
       const topEgresos = Array.from(statsEgresos, ([concepto, monto]) => ({ concepto, monto })).sort(descOrder).slice(0, 5);
 
       return { ingresos, egresos, margen: ingresos - egresos, topIngresos, topEgresos };
-  }, [movimientos]);
+  }, [movimientos, timeFilter]);
 
   const chartData = useMemo(() => {
     const dataMap = new Map<string, {ingreso: number, egreso: number}>();
@@ -394,12 +407,17 @@ export default function ReportesPage() {
       </div>
 
       <div className="mt-12">
-          <div className="flex items-center gap-3 mb-6 px-4">
-              <History className="w-8 h-8 text-neutral-900 dark:text-white" />
-              <div>
-                  <h3 className="text-2xl font-black text-neutral-900 dark:text-white uppercase italic tracking-tighter">Historial de Turnos (Cortes de Caja)</h3>
-                  <p className="text-[10px] font-black text-neutral-400 uppercase tracking-widest mt-1">Auditoría patrimonial retroactiva</p>
+          <div className="flex flex-col md:flex-row justify-between md:items-center gap-4 mb-6 px-4">
+              <div className="flex items-center gap-3">
+                  <History className="w-8 h-8 text-neutral-900 dark:text-white" />
+                  <div>
+                      <h3 className="text-2xl font-black text-neutral-900 dark:text-white uppercase italic tracking-tighter">Historial de Turnos (Cortes de Caja)</h3>
+                      <p className="text-[10px] font-black text-neutral-400 uppercase tracking-widest mt-1">Auditoría patrimonial retroactiva</p>
+                  </div>
               </div>
+              <button onClick={() => window.print()} className="px-6 py-3 bg-neutral-900 dark:bg-white text-white dark:text-black rounded-full font-black text-xs uppercase tracking-widest shadow-xl hover:scale-105 active:scale-95 transition-all">
+                  Imprimir/Exportar Reporte
+              </button>
           </div>
           
           <div className="bg-white dark:bg-neutral-900 rounded-[3rem] border border-neutral-100 dark:border-neutral-800 overflow-hidden shadow-2xl">
