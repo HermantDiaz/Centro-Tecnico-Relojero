@@ -19,7 +19,9 @@ import {
   Search,
   X,
   ExternalLink,
-  Ban
+  Ban,
+  Printer,
+  FileText
 } from "lucide-react";
 import { useRouter } from "next/navigation";
 import ComprobantePago from "@/components/caja/ComprobantePago";
@@ -54,8 +56,9 @@ export default function FinanzasPage() {
   const router = useRouter();
   const { logEvent } = useAudit();
   
-  const [activeTab, setActiveTab] = useState<'hoy' | 'movimientos' | 'tesoreria'>('hoy');
+  const [activeTab, setActiveTab] = useState<'hoy' | 'movimientos' | 'tesoreria' | 'facturas'>('hoy');
   const [movimientos, setMovimientos] = useState<CajaMovimiento[]>([]);
+  const [facturas, setFacturas] = useState<CajaMovimiento[]>([]);
   const [cuentas, setCuentas] = useState<CuentaTesoreria[]>([]);
   const [deudas, setDeudas] = useState<DeudaEmpresa[]>([]);
   const [saldosCobrar, setSaldosCobrar] = useState(0);
@@ -108,6 +111,22 @@ export default function FinanzasPage() {
   useEffect(() => {
     if (user) fetchData();
   }, [user, fetchData]);
+
+  // Lazy Load of Historial de Facturas
+  useEffect(() => {
+        if (activeTab === 'facturas' && facturas.length === 0) {
+            const fetchFacturas = async () => {
+                const { data, error } = await supabase
+                    .from('caja_movimientos')
+                    .select('*')
+                    .eq('tipo', 'ingreso')
+                    .order('created_at', { ascending: false })
+                    .limit(300); // Mostramos los últimos 300 cobros
+                if (!error && data) setFacturas(data as CajaMovimiento[]);
+            };
+            fetchFacturas();
+        }
+  }, [activeTab]);
 
   const stats = useMemo(() => {
     const ingresos = movimientos.filter(m => m.tipo === 'ingreso' && !m.es_traslado).reduce((acc, m) => acc + (Number(m.monto) - Number(m.comision_pos || 0)), 0);
@@ -324,7 +343,8 @@ export default function FinanzasPage() {
         {[
             { id: 'hoy', label: 'Diario', icon: Wallet },
             { id: 'tesoreria', label: 'Bóveda / Bancos', icon: Building2 },
-            { id: 'movimientos', label: 'Movimientos', icon: History }
+            { id: 'movimientos', label: 'Movimientos', icon: History },
+            { id: 'facturas', label: 'Recibos Electrónicos', icon: FileText }
         ].map((tab) => (
             <button
                 key={tab.id}
@@ -480,7 +500,7 @@ export default function FinanzasPage() {
                                               className="ml-2 inline-flex items-center gap-1.5 px-3 py-1.5 bg-rose-50 hover:bg-rose-100 dark:bg-rose-900/20 dark:hover:bg-rose-900/40 text-rose-600 dark:text-rose-400 rounded-lg text-[9px] font-black uppercase tracking-widest transition-colors"
                                               title="Anular Movimiento (Crear Reversión)"
                                           >
-                                              <Ban className="w-3 h-3" />
+                                              <Ban className="w-3.5 h-3.5" /> Anular
                                           </button>
                                       )}
                                   </td>
@@ -488,10 +508,76 @@ export default function FinanzasPage() {
                           ))}
                           {movimientos.length === 0 && (
                               <tr>
-                                  <td colSpan={4} className="px-8 py-20 text-center">
-                                      <History className="w-10 h-10 text-neutral-200 mx-auto mb-4" />
-                                      <p className="text-neutral-400 italic font-medium">No hay registros de movimientos.</p>
+                                  <td colSpan={5} className="px-8 py-32 text-center text-neutral-400 italic">No hay historial registrado.</td>
+                              </tr>
+                          )}
+                      </tbody>
+                  </table>
+              </div>
+          </div>
+      )}
+
+      {activeTab === 'facturas' && (
+          <div className="space-y-6 animate-in fade-in duration-500">
+              <div className="flex justify-between items-center px-4">
+                  <div>
+                    <h3 className="text-3xl font-black text-neutral-900 dark:text-white uppercase italic tracking-tighter">Historial de Recibos</h3>
+                    <p className="text-xs text-neutral-500 font-bold uppercase tracking-widest mt-1">Reimpresión de facturas emitidas</p>
+                  </div>
+              </div>
+              <div className="bg-white dark:bg-neutral-900 rounded-[3rem] border border-neutral-100 dark:border-neutral-800 overflow-hidden shadow-2xl">
+                  <table className="w-full text-left">
+                      <thead className="bg-neutral-50 dark:bg-neutral-800/50">
+                          <tr>
+                              <th className="px-8 py-5 text-[10px] font-black uppercase tracking-widest text-neutral-400">Folio / Fecha</th>
+                              <th className="px-8 py-5 text-[10px] font-black uppercase tracking-widest text-neutral-400">Concepto</th>
+                              <th className="px-8 py-5 text-[10px] font-black uppercase tracking-widest text-neutral-400 text-right">Monto Cobrado</th>
+                              <th className="px-8 py-5 text-[10px] font-black uppercase tracking-widest text-neutral-400 text-center">Acción</th>
+                          </tr>
+                      </thead>
+                      <tbody className="divide-y divide-neutral-100 dark:divide-neutral-800">
+                          {facturas.map(f => (
+                              <tr key={f.id} className="hover:bg-neutral-50/50 dark:hover:bg-neutral-800/30 transition-colors">
+                                  <td className="px-8 py-5">
+                                      <p className="text-sm font-black text-neutral-900 dark:text-white tracking-widest">{f.id ? f.id.split('-')[0].toUpperCase() : 'N/A'}</p>
+                                      <p className="text-[10px] text-neutral-400 font-bold mt-1 uppercase">
+                                          {new Date(f.created_at || '').toLocaleDateString('es-ES', { day: '2-digit', month: 'short', year: 'numeric' })} • {new Date(f.created_at || '').toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' })}
+                                      </p>
                                   </td>
+                                  <td className="px-8 py-5">
+                                      <p className="text-xs font-bold text-neutral-800 dark:text-neutral-200 uppercase">{f.concepto}</p>
+                                      <p className="text-[10px] font-black text-neutral-400 uppercase tracking-widest mt-1">Vía {f.metodo_pago}</p>
+                                  </td>
+                                  <td className="px-8 py-5 text-right">
+                                      <p className="text-md font-black italic text-emerald-600 dark:text-emerald-500">
+                                          +${Number(f.monto).toFixed(2)}
+                                      </p>
+                                  </td>
+                                  <td className="px-8 py-5 text-center">
+                                      <button 
+                                          onClick={() => {
+                                              setComprobanteData({
+                                                  numero_recibo: f.id ? f.id.split('-')[0].toUpperCase() : 'N/A',
+                                                  cliente_nombre: "PÚBLICO EN GENERAL",
+                                                  monto: Number(f.monto),
+                                                  metodo_pago: f.metodo_pago as any,
+                                                  concepto: f.concepto,
+                                                  fecha: new Date(f.created_at || '').toLocaleString('es-ES'),
+                                                  atendido_por: "Admin"
+                                              });
+                                              setShowComprobante(true);
+                                          }}
+                                          className="p-3 bg-neutral-900 dark:bg-white text-white dark:text-black hover:scale-110 rounded-xl transition-all shadow-md inline-flex items-center gap-2"
+                                      >
+                                          <Printer className="w-4 h-4" />
+                                          <span className="text-[9px] font-black uppercase tracking-widest">Reimprimir</span>
+                                      </button>
+                                  </td>
+                              </tr>
+                          ))}
+                          {facturas.length === 0 && (
+                              <tr>
+                                  <td colSpan={4} className="px-8 py-32 text-center text-neutral-400 italic">No hay facturas/recibos emitidos en el registro reciente.</td>
                               </tr>
                           )}
                       </tbody>

@@ -3,7 +3,7 @@
 import { useEffect, useState, useMemo } from "react";
 import { useAuth } from "@/components/AuthProvider";
 import { supabase } from "@/lib/supabase";
-import { PieChart, TrendingUp, History, CalendarDays, Building2, CheckCircle2 } from "lucide-react";
+import { PieChart, TrendingUp, History, CalendarDays, Building2, CheckCircle2, Search, X } from "lucide-react";
 import { useRouter } from "next/navigation";
 
 interface CajaSesion {
@@ -27,6 +27,8 @@ interface Movimiento {
     es_traslado: boolean;
     created_at: string;
     concepto?: string;
+    sesion_id?: string;
+    metodo_pago?: string;
 }
 
 export default function ReportesPage() {
@@ -46,6 +48,9 @@ export default function ReportesPage() {
   // Chart States
   const [timeFilter, setTimeFilter] = useState<'7d' | '30d' | '12m' | 'all'>('7d');
   const [hoverData, setHoverData] = useState<{label: string, ingreso: number, egreso: number} | null>(null);
+
+  // Turno modal state
+  const [selectedSesionForDetails, setSelectedSesionForDetails] = useState<CajaSesion | null>(null);
 
   useEffect(() => {
     if (user && rol === 'admin') {
@@ -68,7 +73,7 @@ export default function ReportesPage() {
 
                 const { data: movs, error: movsError } = await supabase
                     .from('caja_movimientos')
-                    .select('tipo, monto, es_traslado, created_at, concepto')
+                    .select('id, tipo, monto, es_traslado, created_at, concepto, sesion_id, metodo_pago, categoria')
                     .gte('created_at', limiteDoceMeses.toISOString())
                     .order('created_at', { ascending: true });
                 
@@ -429,6 +434,7 @@ export default function ReportesPage() {
                           <th className="px-10 py-7 text-[10px] font-black uppercase tracking-widest text-neutral-400">Estado</th>
                           <th className="px-10 py-7 text-[10px] font-black uppercase tracking-widest text-neutral-400 text-right">Espera vs. Real</th>
                           <th className="px-10 py-7 text-[10px] font-black uppercase tracking-widest text-neutral-400 text-right">Descuadre</th>
+                          <th className="px-10 py-7 text-[10px] font-black uppercase tracking-widest text-neutral-400 text-center">Acciones</th>
                       </tr>
                   </thead>
                   <tbody className="divide-y divide-neutral-100 dark:divide-neutral-800">
@@ -485,11 +491,16 @@ export default function ReportesPage() {
                                       <span className="text-neutral-400 text-[10px] uppercase font-black">-</span>
                                   )}
                               </td>
+                              <td className="px-10 py-7 text-center">
+                                  <button onClick={() => setSelectedSesionForDetails(s)} className="p-3 bg-neutral-100 dark:bg-neutral-800 text-neutral-600 dark:text-neutral-300 hover:bg-black hover:text-white dark:hover:bg-white dark:hover:text-black rounded-xl transition-all shadow-sm">
+                                      <Search className="w-4 h-4" />
+                                  </button>
+                              </td>
                           </tr>
                       ))}
                       {sesiones.length === 0 && (
                           <tr>
-                              <td colSpan={5} className="px-8 py-32 text-center text-neutral-400 italic font-medium">
+                              <td colSpan={6} className="px-8 py-32 text-center text-neutral-400 italic font-medium">
                                   No hay turnos registrados en el sistema.
                               </td>
                           </tr>
@@ -498,6 +509,55 @@ export default function ReportesPage() {
               </table>
           </div>
       </div>
+
+      {/* Modal Desglose de Turno */}
+      {selectedSesionForDetails && (
+          <div onClick={() => setSelectedSesionForDetails(null)} className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+              <div onClick={(e) => e.stopPropagation()} className="bg-white dark:bg-neutral-900 w-full max-w-3xl rounded-[2rem] p-8 shadow-2xl flex flex-col max-h-[85vh] animate-in zoom-in-95 duration-200">
+                  <div className="flex justify-between items-center mb-6">
+                      <div>
+                          <h3 className="text-2xl font-black text-neutral-900 dark:text-white uppercase italic tracking-tighter">Auditoría de Turno</h3>
+                          <p className="text-[10px] font-black text-neutral-400 uppercase tracking-widest mt-1">
+                              Sesión del {new Date(selectedSesionForDetails.fecha_apertura).toLocaleDateString()}
+                          </p>
+                      </div>
+                      <button onClick={() => setSelectedSesionForDetails(null)} className="p-2 bg-neutral-100 dark:bg-neutral-800 text-neutral-500 rounded-full hover:bg-black hover:text-white transition-all">
+                          <X className="w-5 h-5" />
+                      </button>
+                  </div>
+
+                  <div className="flex-1 overflow-y-auto pr-2 pb-4">
+                      {movimientos.filter(m => m.sesion_id === selectedSesionForDetails.id).length === 0 ? (
+                          <div className="text-center py-20 text-neutral-400 italic text-sm">No hubo movimientos extraídos en este turno.</div>
+                      ) : (
+                          <div className="space-y-3">
+                              {movimientos.filter(m => m.sesion_id === selectedSesionForDetails.id)
+                                .sort((a,b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
+                                .map((m, i) => (
+                                  <div key={i} className="flex justify-between items-center bg-neutral-50 dark:bg-neutral-800/50 p-4 rounded-2xl border border-neutral-100 dark:border-neutral-800">
+                                      <div className="flex gap-4 items-center">
+                                          <div className={`w-10 h-10 rounded-full flex items-center justify-center font-black shadow-inner ${m.tipo === 'ingreso' ? 'bg-emerald-100 text-emerald-600' : 'bg-rose-100 text-rose-600'}`}>
+                                              {m.tipo === 'ingreso' ? '+' : '-'}
+                                          </div>
+                                          <div>
+                                              <p className="font-bold text-sm text-neutral-800 dark:text-neutral-200">{m.concepto}</p>
+                                              <p className="text-[10px] font-bold text-neutral-400 uppercase tracking-widest mt-0.5">{new Date(m.created_at).toLocaleTimeString()} • {m.metodo_pago} {m.es_traslado ? '• TRASLADO' : ''}</p>
+                                          </div>
+                                      </div>
+                                      <div className="text-right">
+                                          <p className={`font-black italic text-lg ${m.tipo === 'ingreso' ? 'text-emerald-500' : 'text-rose-500'}`}>
+                                              {m.tipo === 'ingreso' ? '+' : '-'}${m.monto.toFixed(2)}
+                                          </p>
+                                      </div>
+                                  </div>
+                              ))}
+                          </div>
+                      )}
+                  </div>
+              </div>
+          </div>
+      )}
+
     </div>
   );
 }
