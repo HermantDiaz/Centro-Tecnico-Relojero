@@ -51,6 +51,30 @@ interface DeudaEmpresa {
     notas: string;
 }
 
+interface Cliente {
+    id: string;
+    nombre_completo: string;
+    telefono: string;
+}
+
+interface ProductoInventario {
+    id: string;
+    nombre: string;
+    codigo: string;
+    precio_venta: number;
+    stock_actual: number;
+}
+
+interface CartItem {
+    local_id: string;
+    producto_id?: string | null;
+    descripcion: string;
+    cantidad: number;
+    precio_unitario: number;
+    subtotal: number;
+    stock_maximo?: number;
+}
+
 export default function FinanzasPage() {
   const { rol, user, loading: authLoading } = useAuth();
   const { session, loading: cajaLoading, openCaja, closeCaja, addMovimiento, refresh: refreshCaja } = useCaja();
@@ -86,6 +110,18 @@ export default function FinanzasPage() {
   const [nuevoTraslado, setNuevoTraslado] = useState({ monto: "", desde: "Efectivo", hacia: "BAC", referencia: "" });
   const [subcategorias, setSubcategorias] = useState<{id: string, nombre: string, categoria_padre: string}[]>([]);
 
+  // POS State (Ingresos)
+  const [clientes, setClientes] = useState<Cliente[]>([]);
+  const [inventario, setInventario] = useState<ProductoInventario[]>([]);
+  const [cartItems, setCartItems] = useState<CartItem[]>([]);
+  const [cartClienteId, setCartClienteId] = useState("");
+  const [cartNuevoClienteNombre, setCartNuevoClienteNombre] = useState("");
+  const [cartNuevoClienteTelefono, setCartNuevoClienteTelefono] = useState("");
+  const [cartDescuento, setCartDescuento] = useState("");
+  const [cartMetodoPago, setCartMetodoPago] = useState<any>("Efectivo");
+  const [cartReferencia, setCartReferencia] = useState("");
+  const [busquedaProducto, setBusquedaProducto] = useState("");
+
   const fetchData = useCallback(async () => {
     // 1. Movimientos
     if (session?.id) {
@@ -115,6 +151,13 @@ export default function FinanzasPage() {
         const total = reps.reduce((acc, r) => acc + Number(r.saldo_pendiente), 0);
         setSaldosCobrar(total);
     }
+
+    // 5. Clientes e Inventario para el POS
+    const { data: clis } = await supabase.from('clientes').select('id, nombre_completo, telefono').order('nombre_completo');
+    if (clis) setClientes(clis);
+
+    const { data: inv } = await supabase.from('inventario').select('id, nombre, codigo, precio_venta, stock_actual').eq('es_vendible', true).gt('stock_actual', 0).order('nombre');
+    if (inv) setInventario(inv);
   }, [session?.id]);
 
   useEffect(() => {
@@ -196,38 +239,147 @@ export default function FinanzasPage() {
       await openCaja(Number(montoApertura), notasApertura);
       setIsAperturaModalOpen(false);
       setJustificacionApertura("");
-      logEvent('sistema', `Caja abierta con ${montoApertura}`);
+      logEvent('CREADO', 'Finanzas', `Caja abierta con ${montoApertura}`);
     } catch (error: any) {
       alert("Error abriendo caja: " + error.message);
     }
   };
 
+  const handleAddToCart = (producto: ProductoInventario) => {
+    const existing = cartItems.find(item => item.producto_id === producto.id);
+    const currentQty = existing ? existing.cantidad : 0;
+    if (currentQty >= producto.stock_actual) {
+      alert(`No hay suficiente stock de ${producto.nombre}`);
+      return;
+    }
+
+    if (existing) {
+      setCartItems(cartItems.map(item => 
+        item.producto_id === producto.id 
+          ? { ...item, cantidad: item.cantidad + 1, subtotal: (item.cantidad + 1) * item.precio_unitario }
+          : item
+      ));
+    } else {
+      setCartItems([...cartItems, {
+        local_id: Math.random().toString(),
+        producto_id: producto.id,
+        descripcion: producto.nombre,
+        cantidad: 1,
+        precio_unitario: producto.precio_venta,
+        subtotal: producto.precio_venta,
+        stock_maximo: producto.stock_actual
+      }]);
+    }
+  };
+
+  const handleAddCustomService = () => {
+    setCartItems([...cartItems, {
+        local_id: Math.random().toString(),
+        producto_id: null,
+        descripcion: "Servicio / Artículo Libre",
+        cantidad: 1,
+        precio_unitario: 0,
+        subtotal: 0
+    }]);
+  };
+
+  const updateCartItem = (local_id: string, updates: Partial<CartItem>) => {
+    setCartItems(cartItems.map(item => {
+      if (item.local_id !== local_id) return item;
+      const updated = { ...item, ...updates };
+      updated.subtotal = updated.cantidad * updated.precio_unitario;
+      return updated;
+    }));
+  };
+
+  const removeCartItem = (local_id: string) => {
+    setCartItems(cartItems.filter(item => item.local_id !== local_id));
+  };
+
   const handleAddIngreso = async () => {
+    if (cartItems.length === 0) {
+      alert("El carrito está vacío");
+      return;
+    }
+    
     try {
+      // 1. Resolver Cliente
+      let finalClienteId = null;
+      let clienteNombreFinal = "PÚBLICO EN GENERAL";
+
+      if (cartNuevoClienteNombre.trim()) {
+        const clienteExistente = clientes.find(c => c.nombre_completo.toLowerCase() === cartNuevoClienteNombre.trim().toLowerCase());
+        if (clienteExistente) {
+           finalClienteId = clienteExistente.id;
+           clienteNombreFinal = clienteExistente.nombre_completo;
+        } else {
+           // Crear nuevo cliente
+           const { data: nuevoCliente, error: errCli } = await supabase.from('clientes').insert([{
+             nombre_completo: cartNuevoClienteNombre.trim(),
+             telefono: cartNuevoClienteTelefono.trim() || null
+           }]).select().single();
+           if (errCli) throw errCli;
+           finalClienteId = nuevoCliente.id;
+           clienteNombreFinal = nuevoCliente.nombre_completo;
+        }
+      }
+
+      // 2. Calcular montos
+      const subtotalVenta = cartItems.reduce((acc, item) => acc + item.subtotal, 0);
+      const descNum = Number(cartDescuento) || 0;
+      const totalFinal = subtotalVenta - descNum;
+
+      if (totalFinal < 0) {
+        alert("El descuento no puede ser mayor al subtotal");
+        return;
+      }
+
+      // 3. Generar Concepto Resumido
+      const conceptoResumen = cartItems.length === 1 
+        ? `Venta: ${cartItems[0].descripcion}` 
+        : `Venta Múltiple (${cartItems.length} artículos)`;
+
+      // 4. Crear Movimiento
       const data = await addMovimiento({
         tipo: 'ingreso',
-        monto: Number(nuevoIngreso.monto),
-        utilidad_neta: Number(nuevoIngreso.monto) * 0.45,
-        concepto: nuevoIngreso.concepto,
-        categoria: nuevoIngreso.categoria,
-        metodo_pago: nuevoIngreso.metodo_pago,
-        es_traslado: false
-      });
-      // Set Receipt Info
+        monto: totalFinal,
+        utilidad_neta: totalFinal, // Simplificación
+        concepto: conceptoResumen,
+        categoria: "Ventas",
+        metodo_pago: cartMetodoPago,
+        referencia_bancaria: cartReferencia,
+        perfil_id: user?.id,
+        es_traslado: false,
+        cliente_id: finalClienteId,
+        descuento: descNum,
+        subtotal: subtotalVenta
+      }, cartItems);
+
+      // Mostrar Comprobante Automáticamente
       setComprobanteData({
-          numero_recibo: data?.id ? data.id.split('-')[0].toUpperCase() : Math.floor(Math.random() * 90000) + 10000 + "",
-          cliente_nombre: "PÚBLICO EN GENERAL",
-          monto: Number(nuevoIngreso.monto),
-          metodo_pago: nuevoIngreso.metodo_pago,
-          concepto: `Ingreso Manual: ${nuevoIngreso.concepto}`,
-          fecha: new Date().toLocaleString(),
-          atendido_por: user?.email?.split('@')[0] || "Admin"
+        numero_recibo: data?.id ? data.id.split('-')[0].toUpperCase() : Math.floor(Math.random() * 90000) + 10000 + "",
+        cliente_nombre: clienteNombreFinal,
+        monto: totalFinal,
+        subtotal: subtotalVenta,
+        descuento: descNum,
+        metodo_pago: cartMetodoPago,
+        concepto: conceptoResumen,
+        detalles: cartItems, // Nuevo desglose
+        fecha: new Date().toLocaleString(),
+        atendido_por: user?.email?.split('@')[0] || "Admin"
       });
       setIsIngresoModalOpen(false);
       setShowComprobante(true);
-      setNuevoIngreso({ monto: "", concepto: "", categoria: "Ventas", metodo_pago: "Efectivo" });
+
+      // Limpiar Estado
+      setCartItems([]);
+      setCartNuevoClienteNombre("");
+      setCartNuevoClienteTelefono("");
+      setCartDescuento("");
+      setCartReferencia("");
+      setBusquedaProducto("");
       fetchData();
-      await logEvent('CREADO', 'Finanzas', `Ingreso manual registrado por $${nuevoIngreso.monto}. Concepto: ${nuevoIngreso.concepto}`);
+      await logEvent('CREADO', 'Finanzas', `Venta POS por $${totalFinal}. Concepto: ${conceptoResumen}`);
     } catch (e: any) { alert(e.message); }
   };
 
@@ -315,6 +467,25 @@ export default function FinanzasPage() {
             es_traslado: false,
             referencia_bancaria: m.referencia_bancaria
         });
+
+        // REVERSIÓN DE INVENTARIO: Si la venta original tenía productos, los sumamos de vuelta al stock
+        if (m.tipo === 'ingreso') {
+            const { data: detallesOriginales } = await supabase
+                .from('caja_movimientos_detalles')
+                .select('*')
+                .eq('movimiento_id', m.id);
+                
+            if (detallesOriginales && detallesOriginales.length > 0) {
+                for (const det of detallesOriginales) {
+                    if (det.producto_id) {
+                        const { data: currentStock } = await supabase.from('inventario').select('stock_actual').eq('id', det.producto_id).single();
+                        if (currentStock) {
+                            await supabase.from('inventario').update({ stock_actual: currentStock.stock_actual + det.cantidad }).eq('id', det.producto_id);
+                        }
+                    }
+                }
+            }
+        }
 
         // REVERSIÓN DE DEUDA: Si el movimiento original era un PAGO DE DEUDA, restauramos el saldo
         if (m.concepto.startsWith("PAGO DEUDA:")) {
@@ -687,39 +858,166 @@ export default function FinanzasPage() {
       )}
 
       {/* Manual Incomes/Expenses & Transfers are already functionally similar, but with specialized fields for PRO */}
+      {/* POS Cart Modal */}
       {isIngresoModalOpen && (
-          <div onClick={() => setIsIngresoModalOpen(false)} className="fixed inset-0 bg-black/70 backdrop-blur-md z-50 flex items-center justify-center p-4">
-              <div onClick={(e) => e.stopPropagation()} className="bg-white dark:bg-neutral-900 w-full max-w-lg rounded-[3rem] p-10 shadow-2xl border border-neutral-100 dark:border-neutral-800 animate-in zoom-in duration-300 relative">
+          <div onClick={() => setIsIngresoModalOpen(false)} className="fixed inset-0 bg-black/90 backdrop-blur-xl z-50 flex items-center justify-center p-4">
+              <div onClick={(e) => e.stopPropagation()} className="bg-white dark:bg-neutral-900 w-full max-w-6xl h-[90vh] rounded-[3rem] p-8 shadow-2xl animate-in zoom-in-95 duration-300 relative flex gap-8">
                   <button onClick={() => setIsIngresoModalOpen(false)} className="absolute top-8 right-8 p-2 text-neutral-400 hover:text-black dark:hover:text-white hover:bg-neutral-100 dark:hover:bg-neutral-800 rounded-full transition-all z-[60]">
                       <X className="w-5 h-5" />
                   </button>
-                  <div className="flex items-center gap-4 mb-10 border-b pb-6 border-neutral-50 dark:border-neutral-800">
-                      <div className="w-14 h-14 bg-emerald-500 text-white rounded-2xl flex items-center justify-center font-black shadow-lg shadow-emerald-500/30">↑</div>
-                      <div>
-                        <h3 className="text-2xl font-black text-neutral-900 dark:text-white uppercase italic tracking-tighter leading-none">Registrar Entrada</h3>
-                        <p className="text-[10px] font-bold text-neutral-400 uppercase tracking-widest mt-1">Ingreso de flujo operativo</p>
+                  
+                  {/* Left Column: Products / Inventory */}
+                  <div className="w-1/2 flex flex-col border-r border-neutral-100 dark:border-neutral-800 pr-8">
+                      <div className="flex items-center gap-4 mb-6">
+                          <div className="w-12 h-12 bg-emerald-500 text-white rounded-2xl flex items-center justify-center font-black shadow-lg shadow-emerald-500/30">POS</div>
+                          <div>
+                            <h3 className="text-xl font-black text-neutral-900 dark:text-white uppercase italic tracking-tighter leading-none">Punto de Venta</h3>
+                            <p className="text-[10px] font-bold text-neutral-400 uppercase tracking-widest mt-1">Seleccionar Productos</p>
+                          </div>
                       </div>
+                      
+                      <div className="relative mb-6">
+                          <Search className="w-5 h-5 absolute left-4 top-1/2 -translate-y-1/2 text-neutral-400" />
+                          <input 
+                            type="text" 
+                            placeholder="Buscar en inventario..." 
+                            className="w-full bg-neutral-100 dark:bg-neutral-800 border-none rounded-2xl pl-12 pr-4 py-4 font-bold text-sm"
+                            value={busquedaProducto}
+                            onChange={(e) => setBusquedaProducto(e.target.value)}
+                          />
+                      </div>
+
+                      <div className="flex-1 overflow-y-auto space-y-2 pr-2 custom-scrollbar">
+                          {inventario.filter(p => p.nombre.toLowerCase().includes(busquedaProducto.toLowerCase()) || p.codigo.toLowerCase().includes(busquedaProducto.toLowerCase())).map(prod => (
+                              <div key={prod.id} onClick={() => handleAddToCart(prod)} className="group flex items-center justify-between p-4 bg-white dark:bg-neutral-900 border border-neutral-100 dark:border-neutral-800 rounded-2xl hover:border-emerald-500 dark:hover:border-emerald-500 cursor-pointer transition-all hover:shadow-lg">
+                                  <div>
+                                      <p className="font-bold text-sm text-neutral-900 dark:text-white">{prod.nombre}</p>
+                                      <p className="text-[10px] font-black uppercase text-neutral-400">{prod.codigo} • Stock: {prod.stock_actual}</p>
+                                  </div>
+                                  <div className="text-right">
+                                      <p className="font-black text-emerald-600">${prod.precio_venta.toFixed(2)}</p>
+                                      <Plus className="w-4 h-4 text-neutral-300 group-hover:text-emerald-500 ml-auto mt-1" />
+                                  </div>
+                              </div>
+                          ))}
+                          {inventario.length === 0 && <p className="text-center text-xs text-neutral-400 italic py-10">No hay productos vendibles en stock.</p>}
+                      </div>
+
+                      <button onClick={handleAddCustomService} className="mt-6 w-full py-4 border-2 border-dashed border-neutral-200 dark:border-neutral-700 text-neutral-500 dark:text-neutral-400 rounded-2xl font-black text-xs uppercase tracking-widest hover:border-black dark:hover:border-white hover:text-black dark:hover:text-white transition-all">
+                          + Añadir Servicio / Artículo Libre
+                      </button>
                   </div>
-                  <div className="grid grid-cols-2 gap-6 mb-6">
-                      <div>
-                          <label className="block text-[10px] font-black uppercase tracking-widest text-neutral-400 mb-3 ml-1">Monto de Venta ($)</label>
-                          <input type="number" className="w-full bg-neutral-50 dark:bg-neutral-800 border-none rounded-2xl p-5 font-black text-3xl italic text-emerald-600" value={nuevoIngreso.monto} onChange={(e) => setNuevoIngreso({...nuevoIngreso, monto: e.target.value})} />
+
+                  {/* Right Column: Cart & Checkout */}
+                  <div className="w-1/2 flex flex-col">
+                      <h4 className="text-[10px] font-black text-neutral-400 uppercase tracking-widest mb-4">Información del Cliente</h4>
+                      <div className="grid grid-cols-2 gap-4 mb-6">
+                          <div>
+                              <input 
+                                list="clientes_pos" 
+                                placeholder="Nombre Completo (Obligatorio)" 
+                                className="w-full bg-neutral-100 dark:bg-neutral-800 border-none rounded-2xl p-4 font-bold text-sm"
+                                value={cartNuevoClienteNombre}
+                                onChange={(e) => {
+                                  setCartNuevoClienteNombre(e.target.value);
+                                  const cl = clientes.find(c => c.nombre_completo === e.target.value);
+                                  if (cl) setCartNuevoClienteTelefono(cl.telefono || "");
+                                }}
+                              />
+                              <datalist id="clientes_pos">
+                                  {clientes.map(c => <option key={c.id} value={c.nombre_completo} />)}
+                              </datalist>
+                          </div>
+                          <div>
+                              <input 
+                                placeholder="Teléfono (Opcional)" 
+                                className="w-full bg-neutral-100 dark:bg-neutral-800 border-none rounded-2xl p-4 font-bold text-sm"
+                                value={cartNuevoClienteTelefono}
+                                onChange={(e) => setCartNuevoClienteTelefono(e.target.value)}
+                              />
+                          </div>
                       </div>
-                      <div>
-                          <label className="block text-[10px] font-black uppercase tracking-widest text-neutral-400 mb-3 ml-1">Canal de Cobro</label>
-                          <select className="w-full bg-neutral-50 dark:bg-neutral-800 border-none rounded-2xl p-5 font-black text-sm uppercase tracking-widest" value={nuevoIngreso.metodo_pago} onChange={(e) => setNuevoIngreso({...nuevoIngreso, metodo_pago: e.target.value as any})}>
-                              {METODOS_PAGO.map(m => <option key={m} value={m}>{m}</option>)}
-                          </select>
+
+                      <h4 className="text-[10px] font-black text-neutral-400 uppercase tracking-widest mb-4 flex justify-between">
+                          <span>Carrito de Compras</span>
+                          <span>{cartItems.length} ítems</span>
+                      </h4>
+                      <div className="flex-1 overflow-y-auto space-y-3 mb-6 bg-neutral-50 dark:bg-neutral-900/50 rounded-3xl p-4">
+                          {cartItems.map(item => (
+                              <div key={item.local_id} className="flex gap-4 items-center bg-white dark:bg-neutral-800 p-3 rounded-2xl shadow-sm">
+                                  <div className="w-20 shrink-0">
+                                      <input 
+                                        type="number" 
+                                        min="1"
+                                        className="w-full bg-neutral-100 dark:bg-neutral-900 border-none rounded-xl p-2 text-center font-black text-sm"
+                                        value={item.cantidad}
+                                        onChange={(e) => updateCartItem(item.local_id, { cantidad: Number(e.target.value) || 1 })}
+                                      />
+                                  </div>
+                                  <div className="flex-1">
+                                      {item.producto_id ? (
+                                        <p className="font-bold text-xs truncate">{item.descripcion}</p>
+                                      ) : (
+                                        <input 
+                                            className="w-full bg-transparent border-b border-neutral-200 focus:border-black font-bold text-xs p-1"
+                                            value={item.descripcion}
+                                            onChange={(e) => updateCartItem(item.local_id, { descripcion: e.target.value })}
+                                            placeholder="Descripción del servicio"
+                                        />
+                                      )}
+                                      <div className="flex gap-2 mt-1 items-center">
+                                          <span className="text-[9px] font-black text-neutral-400">$</span>
+                                          <input 
+                                            type="number" 
+                                            className="w-20 bg-transparent border-none p-0 text-[10px] font-bold focus:ring-0"
+                                            value={item.precio_unitario}
+                                            onChange={(e) => updateCartItem(item.local_id, { precio_unitario: Number(e.target.value) || 0 })}
+                                            disabled={!!item.producto_id} // No editar precio si es de inventario, o sí? Dejémoslo disable por seguridad
+                                          />
+                                      </div>
+                                  </div>
+                                  <div className="text-right shrink-0">
+                                      <p className="font-black text-sm">${item.subtotal.toFixed(2)}</p>
+                                  </div>
+                                  <button onClick={() => removeCartItem(item.local_id)} className="p-2 text-rose-500 hover:bg-rose-50 rounded-lg"><X className="w-4 h-4" /></button>
+                              </div>
+                          ))}
+                          {cartItems.length === 0 && <div className="h-full flex items-center justify-center text-neutral-400 text-xs font-bold italic">El carrito está vacío. Agrega productos de la izquierda.</div>}
                       </div>
-                  </div>
-                  <div className="space-y-6">
-                      <div>
-                          <label className="block text-[10px] font-black uppercase tracking-widest text-neutral-400 mb-3 ml-1">Concepto Destacado</label>
-                          <input placeholder="Ej: Venta de Correa Cuero Especial" className="w-full bg-neutral-50 dark:bg-neutral-800 border-none rounded-2xl p-5 font-bold text-sm" value={nuevoIngreso.concepto} onChange={(e) => setNuevoIngreso({...nuevoIngreso, concepto: e.target.value})} />
-                      </div>
-                      <div className="flex gap-4 pt-6">
-                          <button onClick={() => setIsIngresoModalOpen(false)} className="flex-1 py-5 text-xs font-black text-neutral-400 uppercase tracking-widest">Cancelar</button>
-                          <button onClick={handleAddIngreso} className="flex-2 px-10 py-5 bg-emerald-600 text-white rounded-[2rem] font-black text-xs uppercase tracking-[0.2em] shadow-2xl shadow-emerald-600/20 active:scale-95 transition-all">Sincronizar Ingreso</button>
+
+                      {/* Totals & Checkout */}
+                      <div className="bg-neutral-100 dark:bg-neutral-800 rounded-3xl p-4">
+                          <div className="flex justify-between items-center mb-2 text-xs font-bold">
+                              <span className="text-neutral-500">Subtotal</span>
+                              <span>${cartItems.reduce((acc, item) => acc + item.subtotal, 0).toFixed(2)}</span>
+                          </div>
+                          <div className="flex justify-between items-center mb-2 text-xs font-bold">
+                              <span className="text-neutral-500">Descuento Global ($)</span>
+                              <input 
+                                type="number" 
+                                className="w-20 bg-white dark:bg-neutral-900 border-none rounded-lg p-1.5 text-right font-black focus:ring-2 ring-emerald-500"
+                                value={cartDescuento}
+                                onChange={(e) => setCartDescuento(e.target.value)}
+                              />
+                          </div>
+                          <div className="flex justify-between items-center mb-3 pt-2 border-t border-neutral-200 dark:border-neutral-700">
+                              <span className="text-lg font-black italic">TOTAL</span>
+                              <span className="text-2xl font-black text-emerald-600">${Math.max(0, cartItems.reduce((acc, item) => acc + item.subtotal, 0) - (Number(cartDescuento) || 0)).toFixed(2)}</span>
+                          </div>
+
+                          <div className="grid grid-cols-2 gap-3 mb-3">
+                              <select className="w-full bg-white dark:bg-neutral-900 border-none rounded-xl p-3 font-black text-[10px] uppercase tracking-widest" value={cartMetodoPago} onChange={(e) => setCartMetodoPago(e.target.value as any)}>
+                                  {METODOS_PAGO.map(m => <option key={m} value={m}>{m}</option>)}
+                              </select>
+                              <input 
+                                placeholder="Referencia (Opcional)" 
+                                className="w-full bg-white dark:bg-neutral-900 border-none rounded-xl p-3 font-bold text-[10px]"
+                                value={cartReferencia}
+                                onChange={(e) => setCartReferencia(e.target.value)}
+                              />
+                          </div>
+
+                          <button onClick={handleAddIngreso} className="w-full py-3 bg-black dark:bg-emerald-500 text-white rounded-2xl font-black text-xs uppercase tracking-[0.2em] shadow-lg active:scale-95 transition-all">Cobrar Ticket</button>
                       </div>
                   </div>
               </div>

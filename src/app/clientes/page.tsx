@@ -76,8 +76,8 @@ export default function ClientesPage() {
 
   // --- Logic ---
   const filteredClientes = clientes.filter(c => 
-    c.nombre_completo.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    c.telefono.includes(searchTerm)
+    (c.nombre_completo || "").toLowerCase().includes(searchTerm.toLowerCase()) ||
+    (c.telefono || "").includes(searchTerm)
   );
 
   const stats = {

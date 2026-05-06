@@ -14,6 +14,14 @@ interface ComprobanteProps {
     concepto: string;
     fecha: string;
     atendido_por: string;
+    subtotal?: number;
+    descuento?: number;
+    detalles?: {
+      descripcion: string;
+      cantidad: number;
+      precio_unitario: number;
+      subtotal: number;
+    }[];
   };
   onClose: () => void;
 }
@@ -42,7 +50,11 @@ export default function ComprobantePago({ data, onClose }: ComprobanteProps) {
             .row { display: flex; justify-content: space-between; border-bottom: 1px solid #eee; padding-bottom: 5px; margin-bottom: 10px; }
             .label { font-size: 10px; font-weight: bold; color: #666; text-transform: uppercase; }
             .value { font-size: 12px; font-weight: bold; }
-            .total-box { margin-top: 20px; padding: 15px; background: #000; color: #fff; text-align: center; border-radius: 8px; }
+            .details-table { width: 100%; border-collapse: collapse; margin-top: 15px; margin-bottom: 15px; font-size: 10px; }
+            .details-table th { text-align: left; border-bottom: 1px solid #ccc; padding-bottom: 5px; }
+            .details-table td { padding: 5px 0; border-bottom: 1px dashed #eee; }
+            .total-row { display: flex; justify-content: space-between; font-size: 10px; margin-top: 5px; }
+            .total-box { margin-top: 15px; padding: 15px; background: #000; color: #fff; text-align: center; border-radius: 8px; }
             .total-label { font-size: 10px; text-transform: uppercase; letter-spacing: 2px; }
             .total-value { font-size: 24px; font-weight: bold; margin-top: 5px; }
             .footer { margin-top: 20px; text-align: center; font-size: 10px; color: #666; border-top: 1px solid #eee; padding-top: 10px; }
@@ -60,10 +72,21 @@ export default function ComprobantePago({ data, onClose }: ComprobanteProps) {
               <div class="row"><span class="label">Fecha</span><span class="value">${data.fecha}</span></div>
               <div class="row"><span class="label">Cliente</span><span class="value">${data.cliente_nombre.toUpperCase()}</span></div>
               
+              ${data.detalles && data.detalles.length > 0 ? `
+              <table class="details-table">
+                <thead><tr><th>Cant</th><th>Concepto</th><th style="text-align:right">Total</th></tr></thead>
+                <tbody>
+                  ${data.detalles.map(d => `<tr><td>${d.cantidad}</td><td>${d.descripcion}</td><td style="text-align:right">$${d.subtotal.toFixed(2)}</td></tr>`).join('')}
+                </tbody>
+              </table>
+              <div class="total-row"><span>Subtotal:</span><span>$${(data.subtotal || data.monto).toFixed(2)}</span></div>
+              ${data.descuento && data.descuento > 0 ? `<div class="total-row" style="color: red;"><span>Descuento:</span><span>-$${data.descuento.toFixed(2)}</span></div>` : ''}
+              ` : `
               <div style="margin-bottom: 15px;">
                   <span class="label" style="display:block; margin-bottom:3px;">Concepto</span>
                   <span class="value">${data.concepto}</span>
               </div>
+              `}
               
               <div class="row"><span class="label">Método de Pago</span><span class="value" style="color: #d97706;">${data.metodo_pago}</span></div>
 
@@ -117,13 +140,33 @@ export default function ComprobantePago({ data, onClose }: ComprobanteProps) {
                         <span className="text-[8px] font-black uppercase text-neutral-400">Cliente</span>
                         <span className="text-[10px] font-extrabold text-neutral-900">{data.cliente_nombre.toUpperCase()}</span>
                     </div>
-                    <div className="py-1.5">
-                        <span className="text-[8px] font-black uppercase text-neutral-400 block mb-1">Concepto</span>
-                        <span className="text-[10px] font-bold text-neutral-700 leading-tight">
-                            {data.concepto.length > 50 ? data.concepto.substring(0,50) + '...' : data.concepto}
-                        </span>
-                    </div>
-                    <div className="flex justify-between border-b border-neutral-50 pb-1.5">
+                    {data.detalles && data.detalles.length > 0 ? (
+                        <div className="py-2 border-b border-neutral-50 mb-2">
+                            <span className="text-[8px] font-black uppercase text-neutral-400 block mb-2">Desglose de Artículos</span>
+                            <div className="space-y-1">
+                                {data.detalles.map((d, i) => (
+                                    <div key={i} className="flex justify-between text-[9px] font-bold text-neutral-800">
+                                        <span className="truncate pr-2 flex-1">{d.cantidad}x {d.descripcion}</span>
+                                        <span className="shrink-0">${d.subtotal.toFixed(2)}</span>
+                                    </div>
+                                ))}
+                            </div>
+                            {(data.descuento || 0) > 0 && (
+                                <div className="flex justify-between text-[9px] font-bold text-rose-500 mt-2 pt-2 border-t border-dashed border-neutral-100">
+                                    <span>Descuento Aplicado</span>
+                                    <span>-${data.descuento?.toFixed(2)}</span>
+                                </div>
+                            )}
+                        </div>
+                    ) : (
+                        <div className="py-1.5">
+                            <span className="text-[8px] font-black uppercase text-neutral-400 block mb-1">Concepto</span>
+                            <span className="text-[10px] font-bold text-neutral-700 leading-tight">
+                                {data.concepto.length > 50 ? data.concepto.substring(0,50) + '...' : data.concepto}
+                            </span>
+                        </div>
+                    )}
+                    <div className="flex justify-between border-b border-neutral-50 pb-1.5 mt-2">
                         <span className="text-[8px] font-black uppercase text-neutral-400">Método de Pago</span>
                         <span className="text-[10px] font-black text-amber-600 italic uppercase">{data.metodo_pago}</span>
                     </div>

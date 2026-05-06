@@ -16,6 +16,14 @@ export interface CajaSesion {
   notas?: string;
 }
 
+export interface MovimientoDetalle {
+  producto_id?: string | null;
+  descripcion: string;
+  cantidad: number;
+  precio_unitario: number;
+  subtotal: number;
+}
+
 export interface CajaMovimiento {
   id: string;
   sesion_id: string;
@@ -29,6 +37,9 @@ export interface CajaMovimiento {
   referencia_bancaria?: string;
   perfil_id?: string;
   subcategoria_id?: string;
+  cliente_id?: string;
+  descuento?: number;
+  subtotal?: number;
   es_traslado: boolean;
   comision_pos: number;
   created_at: string;
@@ -127,7 +138,7 @@ export const useCaja = () => {
     return data;
   };
 
-  const addMovimiento = async (mov: Omit<CajaMovimiento, 'id' | 'created_at' | 'sesion_id' | 'comision_pos'>) => {
+  const addMovimiento = async (mov: Omit<CajaMovimiento, 'id' | 'created_at' | 'sesion_id' | 'comision_pos'>, detalles?: MovimientoDetalle[]) => {
     if (!session) throw new Error('No hay una caja abierta');
 
     // Lógica de comisión POS (4%)
@@ -145,18 +156,37 @@ export const useCaja = () => {
 
     if (error) throw error;
 
-    // Actualizar el monto esperado de la sesión
-    // Nota: El monto esperado en caja (drawer) solo se ve afectado por el 'Efectivo'. 
-    // Sin embargo, para consistencia del reporte diario, sumamos todo.
-    const impactoMonto = mov.tipo === 'ingreso' ? (Number(mov.monto) - comision_pos) : -Number(mov.monto);
-    const nuevoEsperado = session.monto_cierre_esperado + impactoMonto;
-    
-    await supabase
-      .from('caja_sesiones')
-      .update({ monto_cierre_esperado: nuevoEsperado })
-      .eq('id', session.id);
+    // Si hay detalles del carrito, los insertamos
+    if (detalles && detalles.length > 0) {
+      const dbDetalles = detalles.map(d => ({
+        movimiento_id: data.id,
+        producto_id: d.producto_id,
+        descripcion: d.descripcion,
+        cantidad: d.cantidad,
+        precio_unitario: d.precio_unitario,
+        subtotal: d.subtotal
+      }));
+      const { error: errorDetalles } = await supabase.from('caja_movimientos_detalles').insert(dbDetalles);
+      if (errorDetalles) {
+        console.error("Error insertando detalles:", errorDetalles);
+        throw new Error("No se pudieron guardar los detalles del carrito: " + errorDetalles.message);
+      }
+    }
 
-    setSession(prev => prev ? { ...prev, monto_cierre_esperado: nuevoEsperado } : null);
+    // Actualizar el monto esperado de la sesión
+    // Nota: El monto esperado en caja (drawer) SOLO debe verse afectado por el 'Efectivo'.
+    // Los pagos por banco/POS no entran físicamente a la gaveta.
+    if (mov.metodo_pago === 'Efectivo') {
+        const impactoMonto = mov.tipo === 'ingreso' ? (Number(mov.monto) - comision_pos) : -Number(mov.monto);
+        const nuevoEsperado = session.monto_cierre_esperado + impactoMonto;
+        
+        await supabase
+          .from('caja_sesiones')
+          .update({ monto_cierre_esperado: nuevoEsperado })
+          .eq('id', session.id);
+
+        setSession(prev => prev ? { ...prev, monto_cierre_esperado: nuevoEsperado } : null);
+    }
     return data;
   };
 
