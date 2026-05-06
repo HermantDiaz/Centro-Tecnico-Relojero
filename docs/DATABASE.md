@@ -68,6 +68,25 @@ Núcleo del taller para el seguimiento de servicios técnicos.
 - **`veces_garantia`** (INTEGER): Contador de retornos por el mismo servicio.
 - **`created_at`** (TIMESTAMP): Registro automático.
 
+### 6. `caja_sesiones` y `caja_movimientos`
+Módulo de registro financiero (Caja Diaria / POS).
+- **`caja_sesiones`**: Registra la apertura y cierre de caja por cada usuario, incluyendo `monto_apertura`, `monto_cierre_esperado`, y `monto_cierre_real`.
+- **`caja_movimientos`**: Registra cada transacción (ingreso, egreso, traslado), conectada a la sesión activa.
+
+### 7. `tesoreria_cuentas` y `deudas_empresa`
+Módulos de flujo de caja y cuentas por cobrar/pagar.
+- **`tesoreria_cuentas`**: Almacena los saldos globales (Efectivo, BAC, LAFISE, etc.).
+- **`deudas_empresa`**: Registro de obligaciones financieras (proveedores, impuestos, préstamos).
+
+### 8. `empresa_config`
+Almacena la configuración dinámica global del sistema (Ajustes Súper Profesionales).
+- **`id`** (TEXT, PK): Normalmente 'default'.
+- **`nombre_empresa`**, **`eslogan`**, **`direccion_telefono`**, **`mensaje_despedida`** (TEXT): Datos para recibos dinámicos.
+- **`moneda_principal`** (TEXT): Símbolo de moneda (ej. 'C$' o '$').
+
+### 9. `auditoria_logs`
+Bitácora de seguridad antifraude. Registra acciones sensibles (ej. edición o anulación de recibos) con fecha, usuario y detalles técnicos.
+
 ## 📐 Diagrama de Relaciones Actualizado (E/R)
 
 ```mermaid
@@ -75,6 +94,8 @@ erDiagram
     categorias ||--o{ inventario : "contiene"
     clientes ||--o{ reparaciones : "posee"
     perfiles ||--o{ reparaciones : "técnico asignado"
+    caja_sesiones ||--o{ caja_movimientos : "registra"
+    perfiles ||--o{ caja_sesiones : "abre/cierra"
     
     perfiles {
         uuid id PK
@@ -103,5 +124,19 @@ erDiagram
         uuid id PK
         text codigo
         uuid categoria_id FK
+    }
+    
+    caja_sesiones {
+        uuid id PK
+        uuid usuario_id FK
+        timestamp abierto_en
+        timestamp cerrado_en
+    }
+    
+    caja_movimientos {
+        uuid id PK
+        uuid sesion_id FK
+        text tipo
+        numeric monto
     }
 ```

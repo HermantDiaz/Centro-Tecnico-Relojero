@@ -3,6 +3,7 @@
 import React, { useRef } from 'react';
 import { Printer, Download, Share2, X } from 'lucide-react';
 import Image from 'next/image';
+import { useSettings } from '@/hooks/useSettings';
 
 interface ComprobanteProps {
   data: {
@@ -19,6 +20,7 @@ interface ComprobanteProps {
 
 export default function ComprobantePago({ data, onClose }: ComprobanteProps) {
   const receiptRef = useRef<HTMLDivElement>(null);
+  const { empresa, formatCurrency } = useSettings();
 
   const handlePrint = () => {
     const printContent = receiptRef.current;
@@ -49,9 +51,9 @@ export default function ComprobantePago({ data, onClose }: ComprobanteProps) {
         <body>
           <div style="max-width: 400px; margin: 0 auto; border: 1px solid #ddd; padding: 20px; border-radius: 8px;">
               <div class="header">
-                  <div>RELOJERIA IA</div>
-                  <p>CTR Relojeria Software System</p>
-                  <p>Nicaragua - Gestión Financiera Centralizada</p>
+                  <div>${empresa.nombre_empresa}</div>
+                  <p>${empresa.eslogan}</p>
+                  <p>${empresa.direccion_telefono}</p>
               </div>
               
               <div class="row"><span class="label">Recibo No.</span><span class="value">#${data.numero_recibo}</span></div>
@@ -67,11 +69,11 @@ export default function ComprobantePago({ data, onClose }: ComprobanteProps) {
 
               <div class="total-box">
                   <div class="total-label">Total Entregado</div>
-                  <div class="total-value">$ ${data.monto.toFixed(2)}</div>
+                  <div class="total-value">${formatCurrency(data.monto)}</div>
               </div>
 
               <div class="footer">
-                  <p>¡Gracias por confiar en CTR Relojeria!</p>
+                  <p>${empresa.mensaje_despedida}</p>
                   <p>Atendido por: ${data.atendido_por}</p>
               </div>
           </div>
@@ -97,9 +99,9 @@ export default function ComprobantePago({ data, onClose }: ComprobanteProps) {
             {/* Printable Area Wrapper for screen preview - scaled down */}
             <div ref={receiptRef} className="bg-white text-black p-6 rounded-2xl shadow-inner border-t-[6px] border-black">
                 <div className="text-center mb-5 pb-4 border-b border-dashed border-neutral-200">
-                    <div className="text-lg font-black uppercase tracking-[.2em] mb-1 italic">RelojerIa IA</div>
-                    <p className="text-[8px] uppercase font-bold text-neutral-400 tracking-widest">CTR Software System</p>
-                    <p className="text-[7px] text-neutral-400 mt-1">Gestión Centralizada</p>
+                    <div className="text-lg font-black uppercase tracking-[.2em] mb-1 italic">{empresa.nombre_empresa}</div>
+                    <p className="text-[8px] uppercase font-bold text-neutral-400 tracking-widest">{empresa.eslogan}</p>
+                    <p className="text-[7px] text-neutral-400 mt-1">{empresa.direccion_telefono}</p>
                 </div>
 
                 <div className="space-y-3">
@@ -129,11 +131,11 @@ export default function ComprobantePago({ data, onClose }: ComprobanteProps) {
 
                 <div className="mt-6 p-4 bg-neutral-900 text-white rounded-xl text-center shadow-md">
                     <p className="text-[8px] font-black uppercase tracking-[.3em] opacity-40 mb-1">Total Entregado</p>
-                    <p className="text-3xl font-black tracking-tighter">$ {data.monto.toFixed(2)}</p>
+                    <p className="text-3xl font-black tracking-tighter">{formatCurrency(data.monto)}</p>
                 </div>
 
                 <div className="mt-6 text-center border-t border-neutral-100 pt-4">
-                    <p className="text-[7px] font-black text-neutral-400 uppercase italic leading-loose">¡Gracias por confiar en CTR Relojeria!</p>
+                    <p className="text-[7px] font-black text-neutral-400 uppercase italic leading-loose">{empresa.mensaje_despedida}</p>
                     <p className="text-[7px] text-neutral-300 mt-0.5 uppercase tracking-widest font-bold">Atendido por: {data.atendido_por}</p>
                 </div>
             </div>

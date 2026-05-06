@@ -26,7 +26,12 @@ Genera la navegación dinámicamente:
 - Filtra los elementos del menú basándose en el array `roles` definido para cada ruta.
 - Implementa un **Hydration Guard** para evitar parpadeos de UI y errores de SSR.
 
-### 3. Hydration & Stability Pattern
+### 3. SettingsProvider (`src/hooks/useSettings.tsx`)
+Provee la configuración global (moneda, tema, recibos) a toda la aplicación.
+- Sincroniza configuraciones de base de datos (`empresa_config`).
+- Utiliza **Supabase Realtime** (`channel('custom-all-channel')`) para recibir actualizaciones instantáneas cuando un administrador cambia la configuración, replicando el cambio visualmente en todas las sesiones activas del equipo (ej. Cambio de símbolo `$`).
+
+### 4. Hydration & Stability Pattern
 Para evitar errores de hidratación y asegurar que el código dependiente del navegador no se ejecute prematuramente en el servidor:
 - **Mounted Guard**: Se usa un estado `mounted` en `useEffect` para condicionar el renderizado de componentes interactivos.
 - **Session Pulse**: El sistema detecta el foco de la ventana (`window.onfocus`) y sincroniza los datos automáticamente para prevenir sesiones inactivas "fantasma".

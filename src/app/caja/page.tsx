@@ -26,9 +26,10 @@ import {
 import { useRouter } from "next/navigation";
 import ComprobantePago from "@/components/caja/ComprobantePago";
 import { useAudit } from "@/hooks/useAudit";
+import { useSettings } from "@/hooks/useSettings";
 
 const METODOS_PAGO = ["Efectivo", "BAC", "LAFISE", "BANPRO", "POS"] as const;
-const CATEGORIAS_GASTO = ["Sueldos / Nómina", "Repuestos", "Alquiler", "Servicios", "Insumos Taller", "Impuestos", "Otros"];
+const CATEGORIAS_GASTO = ["Compras e Inventario", "Operaciones Fijas", "Planilla y Comisiones", "Marketing y Publicidad", "Servicios Básicos", "Impuestos y Finanzas", "Otros"];
 const TIPOS_DEUDA = ["Proveedor", "Impuesto", "Prestamo", "Otro"] as const;
 
 
@@ -53,6 +54,7 @@ interface DeudaEmpresa {
 export default function FinanzasPage() {
   const { rol, user, loading: authLoading } = useAuth();
   const { session, loading: cajaLoading, openCaja, closeCaja, addMovimiento, refresh: refreshCaja } = useCaja();
+  const { formatCurrency, empresa } = useSettings();
   const router = useRouter();
   const { logEvent } = useAudit();
   
@@ -74,12 +76,15 @@ export default function FinanzasPage() {
   const [isCierreModalOpen, setIsCierreModalOpen] = useState(false);
   const [isTrasladoModalOpen, setIsTrasladoModalOpen] = useState(false);
   const [montoApertura, setMontoApertura] = useState("");
+  const [montoUltimoCierre, setMontoUltimoCierre] = useState<number | null>(null);
+  const [justificacionApertura, setJustificacionApertura] = useState("");
   const [montoCierreReal, setMontoCierreReal] = useState("");
   const [notasCierre, setNotasCierre] = useState("");
   
   const [nuevoIngreso, setNuevoIngreso] = useState({ monto: "", concepto: "", categoria: "Ventas", metodo_pago: "Efectivo" as any });
-  const [nuevoGasto, setNuevoGasto] = useState({ monto: "", concepto: "", categoria: "Otros", metodo_pago: "Efectivo" as any, referencia_bancaria: "" });
+  const [nuevoGasto, setNuevoGasto] = useState({ monto: "", concepto: "", categoria: "Otros", subcategoria_id: "", metodo_pago: "Efectivo" as any, referencia_bancaria: "" });
   const [nuevoTraslado, setNuevoTraslado] = useState({ monto: "", desde: "Efectivo", hacia: "BAC", referencia: "" });
+  const [subcategorias, setSubcategorias] = useState<{id: string, nombre: string, categoria_padre: string}[]>([]);
 
   const fetchData = useCallback(async () => {
     // 1. Movimientos
@@ -95,6 +100,10 @@ export default function FinanzasPage() {
     // 2. Cuentas Tesorería
     const { data: cts } = await supabase.from('tesoreria_cuentas').select('*').order('nombre');
     if (cts) setCuentas(cts);
+
+    // 3. Subcategorias
+    const { data: subcats } = await supabase.from('caja_subcategorias').select('id, nombre, categoria_padre').order('nombre');
+    if (subcats) setSubcategorias(subcats);
 
     // 3. Deudas
     const { data: dds } = await supabase.from('deudas_empresa').select('*').order('fecha_vencimiento');
@@ -147,6 +156,26 @@ export default function FinanzasPage() {
     };
   }, [movimientos, cuentas, deudas, saldosCobrar]);
 
+  useEffect(() => {
+    // Si no hay sesión abierta, intentar precargar el monto de apertura con el último cierre real
+    if (!session && !cajaLoading) {
+      const fetchLastCierre = async () => {
+        const { data } = await supabase
+          .from('caja_sesiones')
+          .select('monto_cierre_real')
+          .order('fecha_cierre', { ascending: false })
+          .limit(1)
+          .maybeSingle();
+        
+        if (data && data.monto_cierre_real !== null) {
+          setMontoApertura(data.monto_cierre_real.toString());
+          setMontoUltimoCierre(data.monto_cierre_real);
+        }
+      };
+      fetchLastCierre();
+    }
+  }, [session, cajaLoading]);
+
   if (authLoading || cajaLoading) return (
     <div className="flex h-[80vh] items-center justify-center">
         <div className="w-12 h-12 border-4 border-neutral-200 border-t-black dark:border-t-white rounded-full animate-spin"></div>
@@ -156,11 +185,21 @@ export default function FinanzasPage() {
   if (rol !== 'admin') return <div className="p-10 text-center">Acceso denegado.</div>;
 
   const handleOpenCaja = async () => {
+    if (!montoApertura) return;
+    const hayDescuadre = montoUltimoCierre !== null && Number(montoApertura) !== montoUltimoCierre;
+    if (hayDescuadre && !justificacionApertura.trim()) {
+       alert("Debes escribir una justificación para el descuadre de apertura.");
+       return;
+    }
     try {
-      await openCaja(Number(montoApertura));
+      const notasApertura = hayDescuadre ? `Apertura con Descuadre (Real ${montoApertura} vs Esperado ${montoUltimoCierre}). Justificación: ${justificacionApertura}` : '';
+      await openCaja(Number(montoApertura), notasApertura);
       setIsAperturaModalOpen(false);
-      fetchData();
-    } catch (e: any) { alert(e.message); }
+      setJustificacionApertura("");
+      logEvent('sistema', `Caja abierta con ${montoApertura}`);
+    } catch (error: any) {
+      alert("Error abriendo caja: " + error.message);
+    }
   };
 
   const handleAddIngreso = async () => {
@@ -200,12 +239,13 @@ export default function FinanzasPage() {
         utilidad_neta: 0,
         concepto: nuevoGasto.concepto,
         categoria: nuevoGasto.categoria,
+        subcategoria_id: nuevoGasto.subcategoria_id || undefined,
         metodo_pago: nuevoGasto.metodo_pago,
         referencia_bancaria: nuevoGasto.referencia_bancaria,
         es_traslado: false
       });
       setIsGastoModalOpen(false);
-      setNuevoGasto({ monto: "", concepto: "", categoria: "Otros", metodo_pago: "Efectivo", referencia_bancaria: "" });
+      setNuevoGasto({ monto: "", concepto: "", categoria: "Otros", subcategoria_id: "", metodo_pago: "Efectivo", referencia_bancaria: "" });
       fetchData();
     } catch (e: any) { alert(e.message); }
   };
@@ -370,19 +410,19 @@ export default function FinanzasPage() {
                       <div className="p-8 bg-emerald-50 dark:bg-emerald-950/20 rounded-[2.5rem] border border-emerald-100 dark:border-emerald-900/30 flex items-center justify-between">
                           <div>
                               <p className="text-[10px] font-black text-emerald-600 dark:text-emerald-400 uppercase tracking-widest mb-1">Ingresos Reales</p>
-                              <p className="text-4xl font-black text-emerald-700 dark:text-emerald-300 italic">${stats.ingresos.toFixed(2)}</p>
+                              <p className="text-4xl font-black text-emerald-700 dark:text-emerald-300 italic">{formatCurrency(stats.ingresos)}</p>
                           </div>
                       </div>
                       <div className="p-8 bg-rose-50 dark:bg-rose-950/20 rounded-[2.5rem] border border-rose-100 dark:border-rose-900/30 flex items-center justify-between">
                           <div>
                               <p className="text-[10px] font-black text-rose-600 dark:text-rose-400 uppercase tracking-widest mb-1">Egresos Totales</p>
-                              <p className="text-4xl font-black text-rose-700 dark:text-rose-300 italic">${stats.egresos.toFixed(2)}</p>
+                              <p className="text-4xl font-black text-rose-700 dark:text-rose-300 italic">{formatCurrency(stats.egresos)}</p>
                           </div>
                       </div>
                       <div className="p-10 bg-neutral-900 rounded-[2.5rem] text-white flex items-center justify-between shadow-2xl">
                           <div>
                               <p className="text-[10px] font-black text-neutral-400 uppercase tracking-widest mb-2">Efectivo Esperado en Caja</p>
-                              <p className="text-5xl font-black italic tracking-tighter">${session?.monto_cierre_esperado.toFixed(2) || "0.00"}</p>
+                              <p className="text-5xl font-black italic tracking-tighter">{formatCurrency(session?.monto_cierre_esperado || 0)}</p>
                           </div>
                           <Wallet className="w-12 h-12 text-white/10" />
                       </div>
@@ -434,7 +474,7 @@ export default function FinanzasPage() {
                       </div>
                       <div className="relative z-10">
                           <p className="text-[10px] font-black text-neutral-400 uppercase tracking-[0.3em] mb-2">{c.nombre}</p>
-                          <h4 className="text-4xl font-black text-neutral-900 dark:text-white tracking-tighter italic">${Number(c.saldo).toFixed(2)}</h4>
+                          <h4 className="text-4xl font-black text-neutral-900 dark:text-white tracking-tighter italic">{formatCurrency(Number(c.saldo))}</h4>
                       </div>
                   </div>
               ))}
@@ -616,6 +656,29 @@ export default function FinanzasPage() {
                             autoFocus
                           />
                       </div>
+                      
+                      {montoUltimoCierre !== null && Number(montoApertura) !== montoUltimoCierre && (
+                          <div className="space-y-4 text-left animate-in fade-in slide-in-from-top-4 duration-300 bg-orange-50 dark:bg-orange-900/20 p-6 rounded-3xl border border-orange-100 dark:border-orange-900/50">
+                              <div className="flex items-start gap-3">
+                                  <AlertCircle className="w-5 h-5 text-orange-500 shrink-0 mt-0.5" />
+                                  <div>
+                                      <p className="text-[10px] font-black uppercase tracking-widest text-orange-600 dark:text-orange-400 mb-1">Descuadre Detectado</p>
+                                      <p className="text-xs text-orange-700 dark:text-orange-300 font-medium">El monto introducido difiere del último cierre histórico <strong>(${montoUltimoCierre.toFixed(2)})</strong>.</p>
+                                  </div>
+                              </div>
+                              <div className="pt-2">
+                                  <label className="block text-[10px] font-black uppercase tracking-widest text-orange-600 dark:text-orange-400 mb-2">Justificación (Obligatoria)</label>
+                                  <textarea 
+                                    className="w-full bg-white dark:bg-black/20 border-none rounded-2xl p-4 font-medium text-sm focus:ring-2 ring-orange-500/50"
+                                    placeholder="Ej: Se retiraron $100 para caja chica administrativa..."
+                                    value={justificacionApertura}
+                                    onChange={(e) => setJustificacionApertura(e.target.value)}
+                                    rows={2}
+                                  />
+                              </div>
+                          </div>
+                      )}
+
                       <button onClick={handleOpenCaja} className="w-full py-6 bg-black dark:bg-white text-white dark:text-black rounded-[2rem] font-black text-sm uppercase tracking-[0.3em] shadow-2xl active:scale-95 transition-all">Iniciar Ahora</button>
                       <button onClick={() => setIsAperturaModalOpen(false)} className="w-full py-2 text-[10px] font-black text-neutral-400 uppercase tracking-widest hover:text-black transition-colors">Volver</button>
                   </div>
@@ -693,14 +756,21 @@ export default function FinanzasPage() {
                       <div className="grid grid-cols-2 gap-4">
                         <div>
                             <label className="block text-[10px] font-black uppercase tracking-widest text-neutral-400 mb-2">Categoría</label>
-                            <select className="w-full bg-neutral-50 dark:bg-neutral-800 border-none rounded-xl p-4 font-black" value={nuevoGasto.categoria} onChange={(e) => setNuevoGasto({...nuevoGasto, categoria: e.target.value})}>
+                            <select className="w-full bg-neutral-50 dark:bg-neutral-800 border-none rounded-xl p-4 font-black" value={nuevoGasto.categoria} onChange={(e) => setNuevoGasto({...nuevoGasto, categoria: e.target.value, subcategoria_id: ""})}>
                                 {CATEGORIAS_GASTO.map(c => <option key={c} value={c}>{c}</option>)}
                             </select>
                         </div>
                         <div>
-                            <label className="block text-[10px] font-black uppercase tracking-widest text-neutral-400 mb-2">Referencia / Voucher</label>
-                            <input placeholder="# de recibo" className="w-full bg-neutral-50 dark:bg-neutral-800 border-none rounded-xl p-4 font-black text-sm text-center" value={nuevoGasto.referencia_bancaria} onChange={(e) => setNuevoGasto({...nuevoGasto, referencia_bancaria: e.target.value})} />
+                            <label className="block text-[10px] font-black uppercase tracking-widest text-neutral-400 mb-2">Subcategoría (Opcional)</label>
+                            <select className="w-full bg-neutral-50 dark:bg-neutral-800 border-none rounded-xl p-4 font-black" value={nuevoGasto.subcategoria_id} onChange={(e) => setNuevoGasto({...nuevoGasto, subcategoria_id: e.target.value})}>
+                                <option value="">-- Ninguna --</option>
+                                {subcategorias.filter(s => s.categoria_padre === nuevoGasto.categoria).map(s => <option key={s.id} value={s.id}>{s.nombre}</option>)}
+                            </select>
                         </div>
+                      </div>
+                      <div>
+                          <label className="block text-[10px] font-black uppercase tracking-widest text-neutral-400 mb-2">Referencia / Voucher</label>
+                          <input placeholder="# de recibo" className="w-full bg-neutral-50 dark:bg-neutral-800 border-none rounded-2xl p-5 font-bold text-sm" value={nuevoGasto.referencia_bancaria} onChange={(e) => setNuevoGasto({...nuevoGasto, referencia_bancaria: e.target.value})} />
                       </div>
                       <div>
                           <label className="block text-[10px] font-black uppercase tracking-widest text-neutral-400 mb-2">Concepto / Detalle</label>
@@ -771,6 +841,16 @@ export default function FinanzasPage() {
                   <p className="text-[10px] font-black text-neutral-400 uppercase tracking-widest mb-10">Verificación de fondo físico</p>
                   
                   <div className="space-y-8">
+                      {session?.abierta_por !== user?.id && (
+                          <div className="bg-rose-50 dark:bg-rose-900/20 p-6 rounded-3xl border border-rose-100 dark:border-rose-900/50 flex items-start gap-4 text-left animate-in fade-in zoom-in-95">
+                              <AlertCircle className="w-6 h-6 text-rose-500 shrink-0 mt-0.5" />
+                              <div>
+                                  <p className="text-[10px] font-black uppercase tracking-widest text-rose-600 dark:text-rose-400 mb-1">Identidad Delegada</p>
+                                  <p className="text-xs text-rose-700 dark:text-rose-300 font-medium">Atención: Esta caja fue abierta por otro usuario. Al cerrarla, asumirás la responsabilidad compartida del arqueo final y sus descuadres.</p>
+                              </div>
+                          </div>
+                      )}
+
                       <div className="p-8 bg-neutral-50 dark:bg-neutral-800 rounded-[2rem]">
                           <p className="text-[10px] font-black uppercase text-neutral-400 mb-2 tracking-widest">Balance Teórico (Sistema)</p>
                           <p className="text-4xl font-black italic text-neutral-900 dark:text-white">${session?.monto_cierre_esperado.toFixed(2)}</p>

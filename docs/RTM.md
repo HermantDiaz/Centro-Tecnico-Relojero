@@ -17,8 +17,12 @@ Este documento rastrea el cumplimiento de los requerimientos definidos en el [PR
 | **REQ-FUN-007** | `reparaciones/page.tsx` | ✅ | Modal de historial con logs de auditoría. |
 | **REQ-FUN-008** | `reparaciones/page.tsx` | ✅ | Selector de insumos directo desde el inventario. |
 | **REQ-FUN-009** | `reparaciones/page.tsx` | ✅ | Contador de garantías y alertas de reincidencia. |
-| **REQ-FUN-010** | `finanzas/page.tsx` | 🏗️ | *En fase de diseño de lógica de cierre.* |
-| **REQ-FUN-011** | `finanzas/page.tsx` | 🏗️ | *Estructura de transacciones en DB.* |
+| **REQ-FUN-010** | `caja/page.tsx` | ✅ | Cierre obligatorio con arqueo real y esperado validado. |
+| **REQ-FUN-011** | `caja/page.tsx`, `ComprobantePago.tsx` | ✅ | Categorización de flujos y generación de recibos en caja. |
+| **REQ-FUN-012** | `reportes/page.tsx` | ✅ | Top ingresos/gastos y analítica a 12 meses interactiva. |
+| **REQ-FUN-013** | `ajustes/page.tsx`, `useSettings.tsx` | ✅ | Sincronización Realtime de empresa_config. |
+| **REQ-FUN-014** | `ajustes/page.tsx` | ✅ | Mockup flotante en vivo para editar recibo. |
+| **REQ-FUN-015** | `ComprobantePago.tsx` | ✅ | Impresión nativa con window.print(); PDF en desarrollo. |
 | **REQ-NFC-001** | `layout.tsx`, `Sidebar.tsx` | ✅ | Cambio a modo móvil en viewport angosto. |
 | **REQ-NFC-002** | `globals.css`, `layout.tsx` | ✅ | Sincronización automática con tema del SO. |
 | **REQ-NFC-003** | `globals.css`, Clases Tailwind | ✅ | Efectos visuales, degradados y animaciones. |
@@ -37,7 +41,7 @@ Este documento rastrea el cumplimiento de los requerimientos definidos en el [PR
 | **REQ-REP-004** | `reparaciones/page.tsx` | ✅ | Registro de abonos y saldo calculado. |
 | **REQ-REP-005** | `reparaciones/page.tsx` | ✅ | Ticket de servicio generado (imprimible). |
 | **REQ-REP-006** | `reparaciones/page.tsx` | ✅ | Filtros por Fecha, Estado y Morosidad. |
-| **REQ-SEC-001** | `ARCHITECTURE.md` (WIP) / Supabase | 🏗️ | *En revision de politicas RLS.* |
+| **REQ-SEC-001** | `Supabase` (SQL RLS Policies) | ✅ | Aislamiento estricto por auth.uid() en todas las tablas operativas. |
 | **REQ-SEC-002** | Infraestructura (Vercel/Supabase) | ✅ | Forzado de SSL en todos los dominios. |
 | **REQ-SEC-003** | `AuthProvider.tsx` (JWT Config) | ✅ | Expiración de sesión gestionada por Supabase. |
 | **REQ-SEC-004** | `lib/supabase.ts` / Next.js | ✅ | Prevención nativa de Inyecciones y XSS. |
@@ -51,4 +55,4 @@ Este documento rastrea el cumplimiento de los requerimientos definidos en el [PR
 - 🚫 **Cancelado:** Requerimiento descartado o modificado.
 
 ---
-*Última actualización: 2026-03-31*
+*Última actualización: 2026-05-03*

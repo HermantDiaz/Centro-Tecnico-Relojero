@@ -29,6 +29,7 @@ interface Movimiento {
     concepto?: string;
     sesion_id?: string;
     metodo_pago?: string;
+    subcategoria_id?: string;
 }
 
 export default function ReportesPage() {
@@ -42,6 +43,7 @@ export default function ReportesPage() {
   const [saldosCobrar, setSaldosCobrar] = useState(0);
   const [capitalDisponible, setCapitalDisponible] = useState(0);
   const [deudasTotales, setDeudasTotales] = useState(0);
+  const [subcategoriasMap, setSubcategoriasMap] = useState<Map<string, string>>(new Map());
   
   const [fetching, setFetching] = useState(true);
 
@@ -73,12 +75,20 @@ export default function ReportesPage() {
 
                 const { data: movs, error: movsError } = await supabase
                     .from('caja_movimientos')
-                    .select('id, tipo, monto, es_traslado, created_at, concepto, sesion_id, metodo_pago, categoria')
+                    .select('id, tipo, monto, es_traslado, created_at, concepto, sesion_id, metodo_pago, categoria, subcategoria_id')
                     .gte('created_at', limiteDoceMeses.toISOString())
                     .order('created_at', { ascending: true });
                 
                 if (movsError) console.error("Error fetching movs:", movsError);
                 if (movs) setMovimientos(movs as any);
+
+                // Fetch Subcategories Map
+                const { data: subcats } = await supabase.from('caja_subcategorias').select('id, nombre');
+                if (subcats) {
+                    const map = new Map();
+                    subcats.forEach((s: any) => map.set(s.id, s.nombre));
+                    setSubcategoriasMap(map);
+                }
 
                 // 3. Balance General
                 const { data: cts } = await supabase.from('tesoreria_cuentas').select('saldo');
@@ -109,6 +119,7 @@ export default function ReportesPage() {
   const globalStats = useMemo(() => {
       const statsIngresos = new Map<string, number>();
       const statsEgresos = new Map<string, number>();
+      const statsSubcategorias = new Map<string, {monto: number, count: number}>();
       let ingresos = 0;
       let egresos = 0;
 
@@ -128,15 +139,27 @@ export default function ReportesPage() {
           } else if (m.tipo === 'egreso') {
               egresos += Number(m.monto);
               if (m.concepto) statsEgresos.set(m.concepto, (statsEgresos.get(m.concepto) || 0) + Number(m.monto));
+              if (m.subcategoria_id) {
+                  const existing = statsSubcategorias.get(m.subcategoria_id) || {monto: 0, count: 0};
+                  statsSubcategorias.set(m.subcategoria_id, {
+                      monto: existing.monto + Number(m.monto),
+                      count: existing.count + 1
+                  });
+              }
           }
       });
 
       const descOrder = (a: any, b: any) => b.monto - a.monto;
       const topIngresos = Array.from(statsIngresos, ([concepto, monto]) => ({ concepto, monto })).sort(descOrder).slice(0, 5);
       const topEgresos = Array.from(statsEgresos, ([concepto, monto]) => ({ concepto, monto })).sort(descOrder).slice(0, 5);
+      
+      const topSubcategorias = Array.from(statsSubcategorias, ([subcategoria_id, data]) => ({ 
+          nombre: subcategoriasMap.get(subcategoria_id) || 'Desconocida', 
+          ...data 
+      })).sort(descOrder).slice(0, 5);
 
-      return { ingresos, egresos, margen: ingresos - egresos, topIngresos, topEgresos };
-  }, [movimientos, timeFilter]);
+      return { ingresos, egresos, margen: ingresos - egresos, topIngresos, topEgresos, topSubcategorias };
+  }, [movimientos, timeFilter, subcategoriasMap]);
 
   const chartData = useMemo(() => {
     const dataMap = new Map<string, {ingreso: number, egreso: number}>();
@@ -297,7 +320,7 @@ export default function ReportesPage() {
       </div>
 
       {/* Top Movimientos */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mt-6 relative z-10 w-full mb-8">
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mt-6 relative z-10 w-full mb-8">
           <div className="bg-white dark:bg-neutral-900 rounded-[3rem] border border-neutral-100 dark:border-neutral-800 p-8 shadow-2xl">
               <h4 className="text-xl font-black text-neutral-900 dark:text-white uppercase tracking-tighter italic mb-1">Top Ingresos</h4>
               <p className="text-[10px] font-black text-neutral-400 uppercase tracking-widest mb-6">Conceptos más rentables (Histórico)</p>
@@ -326,6 +349,25 @@ export default function ReportesPage() {
                   ))}
                   {globalStats.topEgresos.length === 0 && (
                       <div className="text-center py-8 text-neutral-400 italic text-sm font-medium">No hay datos suficientes.</div>
+                  )}
+              </div>
+          </div>
+
+          <div className="bg-white dark:bg-neutral-900 rounded-[3rem] border border-neutral-100 dark:border-neutral-800 p-8 shadow-2xl">
+              <h4 className="text-xl font-black text-neutral-900 dark:text-white uppercase tracking-tighter italic mb-1">Fugas por Subcategoría</h4>
+              <p className="text-[10px] font-black text-neutral-400 uppercase tracking-widest mb-6">Frecuencia y volumen (Histórico)</p>
+              <div className="space-y-4">
+                  {globalStats.topSubcategorias.map((sub, i) => (
+                      <div key={i} className="flex justify-between items-center bg-amber-50/50 dark:bg-amber-900/10 p-4 rounded-2xl border border-amber-100 dark:border-amber-900/30">
+                          <div className="min-w-0 pr-4">
+                              <p className="font-bold text-sm text-neutral-700 dark:text-neutral-300 truncate">{sub.nombre}</p>
+                              <p className="text-[10px] font-black text-amber-600 dark:text-amber-500 uppercase mt-0.5">{sub.count} compras este periodo</p>
+                          </div>
+                          <span className="font-black text-rose-600 dark:text-rose-400 shrink-0">-${sub.monto.toFixed(2)}</span>
+                      </div>
+                  ))}
+                  {globalStats.topSubcategorias.length === 0 && (
+                      <div className="text-center py-8 text-neutral-400 italic text-sm font-medium">Asigna subcategorías al registrar gastos.</div>
                   )}
               </div>
           </div>

@@ -13,6 +13,7 @@ const NAV_ITEMS = [
   { label: "Clientes", icon: "👥", path: "/clientes", roles: ["admin", "recepcion", "tecnico"] },
   { label: "Deudas", icon: "🤝", path: "/deudas", roles: ["admin"] },
   { label: "Reportes", icon: "📈", path: "/reportes", roles: ["admin"] },
+  { label: "Ajustes", icon: "⚙️", path: "/ajustes", roles: ["admin", "recepcion", "tecnico"] },
 ];
 
 const ADMIN_ITEMS = [

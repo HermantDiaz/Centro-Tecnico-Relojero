@@ -28,6 +28,7 @@ export interface CajaMovimiento {
   referencia_id?: string;
   referencia_bancaria?: string;
   perfil_id?: string;
+  subcategoria_id?: string;
   es_traslado: boolean;
   comision_pos: number;
   created_at: string;
@@ -118,6 +119,10 @@ export const useCaja = () => {
       .single();
 
     if (error) throw error;
+    
+    // Forzar la sincronización de la bóveda de Efectivo con el arqueo físico real
+    await supabase.from('tesoreria_cuentas').update({ saldo: montoReal }).eq('nombre', 'Efectivo');
+
     setSession(null);
     return data;
   };

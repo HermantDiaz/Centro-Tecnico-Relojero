@@ -33,6 +33,9 @@ Digitalizar y automatizar la gestión operativa de CTR Relojería, resolviendo l
 | **REQ-FUN-010** | Cierre de Caja Diario | Proceso mandatorio de arqueo y cierre al finalizar el día operativo. | Admin, Recepción | Crítica | El sistema no permite iniciar nueva jornada sin realizar el cierre anterior. Validaciones estrictas de notas por faltantes. |
 | **REQ-FUN-011** | Registro Transaccional | Categorización de Ingresos y Egresos (Insumos, Gastos, Ventas). | Admin, Recepción | Alta | Trazabilidad de cada flujo que entra o sale con identificadores numéricos de recibo extraídos del backend. |
 | **REQ-FUN-012** | Inteligencia Financiera Reactiva | Reportes y rankings dinámicos en el Dashboard y Módulo de Reportes. | Admin | Alta | Tarjetas "Top Ingresos/Gastos" se actualizan instantáneamente respetando los filtros de 7, 30 días o ciclo anual. |
+| **REQ-FUN-013** | Configuración Global (ERP) | Módulo de Ajustes para personalizar Nombre, Eslogan, Moneda y Pie de Página. | Admin | Alta | Sincronización Realtime con Supabase; los cambios aplican instantáneamente en todos los clientes conectados. |
+| **REQ-FUN-014** | Previsualización de Recibos | Mockup en vivo de cómo se imprimirá el ticket de caja al cliente. | Admin | Media | Editor en vivo que responde letra a letra a la configuración ingresada en Ajustes. |
+| **REQ-FUN-015** | Exportación de Recibos | Capacidad de imprimir físicamente o exportar comprobantes de pago. | Admin, Recepción | Media | Botón "Imprimir" que levanta la ventana nativa del navegador con formato de 80mm/Ticket. (Generación PDF en desarrollo). |
 
 ### 3.2. Requerimientos No Funcionales (NFC)
 | ID | Nombre | Descripción | Actores | Prioridad | Criterios de Aceptación |

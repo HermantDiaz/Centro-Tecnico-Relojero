@@ -1,5 +1,5 @@
 # ⌚ RELOJERÍA IA - Sistema Administrativo
-**Estado Actual:** `v11.0 - PLATINUM-RELEASE` (Módulos Financieros, Auditoría Antifraude y Analítica Completados en Producción)
+**Estado Actual:** `v12.0 - PRODUCCIÓN (Día 1)` (Módulo de Ajustes Súper Profesional, Recibos Dinámicos, Sincronización Realtime y Seguridad RLS Parcheada)
 
 ## 🚀 Tecnologías Principales
 
@@ -19,6 +19,7 @@
   - `/finanzas` (Deprecated): Integrado y absorbido por `/caja` y `/reportes`.
   - `/deudas`: Cuentas por cobrar y pagar sincronizadas al Flujo de Caja.
   - `/reportes`: BI (Business Intelligence) Reactivo, Top de Ingresos/Gastos con filtros históricos y optimización de memoria a 12 meses.
+  - `/ajustes`: Panel central de configuración (Módulo de Apariencia, Moneda Global y Recibos Dinámicos con previsualización).
 - `src/components/`: Componentes React reutilizables (Sidebar, AuthProvider, etc.).
 - `src/lib/`: Utilidades y configuraciones (Supabase client).
 - `docs/`: Documentación técnica detallada.
