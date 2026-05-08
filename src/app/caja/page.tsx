@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useMemo, useCallback } from "react";
+import { useEffect, useState, useMemo, useCallback, Fragment } from "react";
 import { useAuth } from "@/components/AuthProvider";
 import { useCaja, CajaMovimiento } from "@/hooks/useCaja";
 import { supabase } from "@/lib/supabase";
@@ -21,7 +21,9 @@ import {
   ExternalLink,
   Ban,
   Printer,
-  FileText
+  FileText,
+  ChevronRight,
+  ChevronDown
 } from "lucide-react";
 import { useRouter } from "next/navigation";
 import ComprobantePago from "@/components/caja/ComprobantePago";
@@ -88,6 +90,7 @@ export default function FinanzasPage() {
   const [cuentas, setCuentas] = useState<CuentaTesoreria[]>([]);
   const [deudas, setDeudas] = useState<DeudaEmpresa[]>([]);
   const [saldosCobrar, setSaldosCobrar] = useState(0);
+  const [expandedMovId, setExpandedMovId] = useState<string | null>(null);
 
   // Comprobante State
   const [showComprobante, setShowComprobante] = useState(false);
@@ -127,7 +130,12 @@ export default function FinanzasPage() {
     if (session?.id) {
         const { data: movs } = await supabase
           .from('caja_movimientos')
-          .select('*')
+          .select(`
+            *,
+            caja_movimientos_detalles (
+              descripcion, cantidad, precio_unitario, subtotal
+            )
+          `)
           .eq('sesion_id', session.id)
           .order('created_at', { ascending: false });
         if (movs) setMovimientos(movs);
@@ -170,7 +178,12 @@ export default function FinanzasPage() {
             const fetchFacturas = async () => {
                 const { data, error } = await supabase
                     .from('caja_movimientos')
-                    .select('*')
+                    .select(`
+                        *,
+                        caja_movimientos_detalles (
+                            descripcion, cantidad, precio_unitario, subtotal
+                        )
+                    `)
                     .eq('tipo', 'ingreso')
                     .order('created_at', { ascending: false })
                     .limit(300); // Mostramos los últimos 300 cobros
@@ -603,25 +616,54 @@ export default function FinanzasPage() {
               <div className="bg-white dark:bg-neutral-900 rounded-[3rem] p-10 border border-neutral-100 dark:border-neutral-800 shadow-xl overflow-hidden relative">
                    <h3 className="text-xl font-black text-neutral-900 dark:text-white uppercase italic tracking-tighter mb-8">AuditorIa de Flujo</h3>
                    <div className="space-y-4">
-                       {movimientos.slice(0, 6).map(m => (
-                           <div key={m.id} className="flex items-center justify-between py-5 border-b border-neutral-50 dark:border-neutral-800 last:border-none group">
-                               <div className="flex items-center gap-5">
-                                   <div className={`w-12 h-12 rounded-2xl flex items-center justify-center font-black shadow-inner transition-transform group-hover:scale-110 ${m.tipo === 'ingreso' ? 'bg-emerald-100 text-emerald-600' : 'bg-rose-100 text-rose-600'}`}>
-                                       {m.tipo === 'ingreso' ? '↑' : '↓'}
-                                   </div>
-                                   <div>
-                                       <p className="text-sm font-black text-neutral-900 dark:text-white uppercase tracking-tight">{m.concepto}</p>
-                                       <p className="text-[10px] font-black text-neutral-400 uppercase tracking-[0.2em] mt-1">{m.metodo_pago} • {m.categoria}</p>
-                                   </div>
-                               </div>
-                               <div className="text-right">
-                                   <p className={`text-md font-black italic ${m.tipo === 'ingreso' ? 'text-emerald-600' : 'text-rose-600'}`}>
-                                       {m.tipo === 'ingreso' ? '+' : '-'}${Number(m.monto).toFixed(2)}
-                                   </p>
-                                   {m.comision_pos > 0 && <p className="text-[9px] text-rose-400 font-black animate-pulse">(-${m.comision_pos.toFixed(2)} FEE POS)</p>}
-                               </div>
-                           </div>
-                       ))}
+                        {movimientos.slice(0, 10).map(m => (
+                            <div 
+                                key={m.id} 
+                                onClick={() => setExpandedMovId(expandedMovId === m.id ? null : m.id)}
+                                className={`py-5 border-b border-neutral-50 dark:border-neutral-800 last:border-none group cursor-pointer transition-all ${expandedMovId === m.id ? 'bg-neutral-50/50 dark:bg-neutral-800/20 px-4 rounded-2xl' : ''}`}
+                            >
+                                <div className="flex items-center justify-between">
+                                    <div className="flex items-center gap-5">
+                                        <div className={`w-12 h-12 rounded-2xl flex items-center justify-center font-black shadow-inner transition-transform group-hover:scale-110 ${m.tipo === 'ingreso' ? 'bg-emerald-100 text-emerald-600' : 'bg-rose-100 text-rose-600'}`}>
+                                            {m.tipo === 'ingreso' ? '↑' : '↓'}
+                                        </div>
+                                        <div>
+                                            <p className="text-sm font-black text-neutral-900 dark:text-white uppercase tracking-tight group-hover:text-blue-500 transition-colors">{m.concepto}</p>
+                                            <p className="text-[10px] font-black text-neutral-400 uppercase tracking-[0.2em] mt-1 flex items-center gap-2">
+                                                {m.metodo_pago} • {m.categoria}
+                                                {m.caja_movimientos_detalles && m.caja_movimientos_detalles.length > 0 && (
+                                                    <span className="text-blue-500 bg-blue-50 dark:bg-blue-900/20 px-2 py-0.5 rounded text-[8px]">{m.caja_movimientos_detalles.length} ítems</span>
+                                                )}
+                                            </p>
+                                        </div>
+                                    </div>
+                                    <div className="text-right flex items-center gap-4">
+                                        <div>
+                                            <p className={`text-md font-black italic ${m.tipo === 'ingreso' ? 'text-emerald-600' : 'text-rose-600'}`}>
+                                                {m.tipo === 'ingreso' ? '+' : '-'}${Number(m.monto).toFixed(2)}
+                                            </p>
+                                            {m.comision_pos > 0 && <p className="text-[9px] text-rose-400 font-black animate-pulse">(-${m.comision_pos.toFixed(2)} FEE POS)</p>}
+                                        </div>
+                                        <ChevronRight className={`w-4 h-4 text-neutral-300 transition-transform ${expandedMovId === m.id ? 'rotate-90 text-blue-500' : ''}`} />
+                                    </div>
+                                </div>
+
+                                {expandedMovId === m.id && m.caja_movimientos_detalles && m.caja_movimientos_detalles.length > 0 && (
+                                    <div className="mt-4 ml-16 space-y-2 animate-in slide-in-from-top-2 duration-300 pb-2">
+                                        <p className="text-[9px] font-black uppercase text-neutral-400 tracking-widest mb-3">Contenido del movimiento:</p>
+                                        {m.caja_movimientos_detalles.map((det, idx) => (
+                                            <div key={idx} className="flex justify-between items-center text-[11px] bg-white dark:bg-neutral-900/50 p-2 rounded-xl border border-neutral-100 dark:border-neutral-800">
+                                                <span className="font-bold text-neutral-700 dark:text-neutral-300 uppercase truncate pr-4">{det.descripcion}</span>
+                                                <div className="shrink-0 flex gap-4 items-center">
+                                                    <span className="text-neutral-400 font-black uppercase text-[9px]">{det.cantidad}x</span>
+                                                    <span className="font-black text-neutral-900 dark:text-white">${Number(det.subtotal).toFixed(2)}</span>
+                                                </div>
+                                            </div>
+                                        ))}
+                                    </div>
+                                )}
+                            </div>
+                        ))}
                        {movimientos.length === 0 && <div className="py-20 text-center text-neutral-400 italic">No hay actividad hoy aún.</div>}
                    </div>
               </div>
@@ -675,47 +717,86 @@ export default function FinanzasPage() {
                       </thead>
                       <tbody className="divide-y divide-neutral-100 dark:divide-neutral-800">
                           {movimientos.map(m => (
-                              <tr key={m.id} className="hover:bg-neutral-50/50 dark:hover:bg-neutral-800/30 transition-colors">
-                                  <td className="px-8 py-5">
-                                      <p className="text-xs font-black text-neutral-900 dark:text-white uppercase">{new Date(m.created_at || '').toLocaleDateString('es-ES', { day: '2-digit', month: 'short', year: 'numeric' })}</p>
-                                      <p className="text-[10px] text-neutral-400 font-bold mt-1">{new Date(m.created_at || '').toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' })}</p>
-                                  </td>
-                                  <td className="px-8 py-5">
-                                      <p className="text-sm font-black text-neutral-900 dark:text-white uppercase tracking-tight">{m.concepto}</p>
-                                      {m.es_traslado && <span className="inline-block mt-1 px-2 py-0.5 bg-blue-100 text-blue-700 rounded text-[8px] font-black uppercase">Traslado</span>}
-                                  </td>
-                                  <td className="px-8 py-5">
-                                      <span className="px-3 py-1 bg-neutral-100 dark:bg-neutral-800 text-neutral-600 rounded-lg text-[9px] font-black uppercase tracking-widest">
-                                          {m.categoria}
-                                      </span>
-                                  </td>
-                                  <td className="px-8 py-5 text-right">
-                                      <p className={`text-md font-black italic ${m.tipo === 'ingreso' ? 'text-emerald-600' : 'text-rose-600'}`}>
-                                          {m.tipo === 'ingreso' ? '+' : '-'}${Number(m.monto).toFixed(2)}
-                                      </p>
-                                      <p className="text-[9px] font-black text-neutral-400 uppercase mt-1">{m.metodo_pago}</p>
-                                  </td>
-                                  <td className="px-8 py-5 text-right">
-                                      {m.categoria === 'Reparaciones' && m.referencia_id && (
-                                          <button 
-                                              onClick={() => router.push(`/reparaciones?edit_id=${m.referencia_id}`)}
-                                              className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-neutral-100/50 hover:bg-neutral-200 dark:bg-neutral-800 dark:hover:bg-neutral-700 text-neutral-700 dark:text-neutral-300 rounded-lg text-[9px] font-black uppercase tracking-widest transition-colors"
-                                              title="Ir a modificar la reparación de origen"
-                                          >
-                                              Editar <ExternalLink className="w-3 h-3" />
-                                          </button>
-                                      )}
-                                      {!m.concepto.startsWith('ANULACIÓN:') && !m.es_traslado && (
-                                          <button 
-                                              onClick={() => handleAnularMovimiento(m)}
-                                              className="ml-2 inline-flex items-center gap-1.5 px-3 py-1.5 bg-rose-50 hover:bg-rose-100 dark:bg-rose-900/20 dark:hover:bg-rose-900/40 text-rose-600 dark:text-rose-400 rounded-lg text-[9px] font-black uppercase tracking-widest transition-colors"
-                                              title="Anular Movimiento (Crear Reversión)"
-                                          >
-                                              <Ban className="w-3.5 h-3.5" /> Anular
-                                          </button>
-                                      )}
-                                  </td>
-                              </tr>
+                               <Fragment key={m.id}>
+                                   <tr 
+                                      onClick={() => setExpandedMovId(expandedMovId === m.id ? null : m.id)}
+                                      className={`hover:bg-neutral-50/50 dark:hover:bg-neutral-800/30 transition-colors cursor-pointer ${expandedMovId === m.id ? 'bg-neutral-50/80 dark:bg-neutral-800/50' : ''}`}
+                                    >
+                                       <td className="px-8 py-5">
+                                           <p className="text-xs font-black text-neutral-900 dark:text-white uppercase">{new Date(m.created_at || '').toLocaleDateString('es-ES', { day: '2-digit', month: 'short', year: 'numeric' })}</p>
+                                           <p className="text-[10px] text-neutral-400 font-bold mt-1">{new Date(m.created_at || '').toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' })}</p>
+                                       </td>
+                                       <td className="px-8 py-5">
+                                           <div className="flex items-center gap-3">
+                                                <ChevronRight className={`w-3 h-3 text-neutral-300 transition-transform ${expandedMovId === m.id ? 'rotate-90 text-blue-500' : ''}`} />
+                                                <div>
+                                                    <p className="text-sm font-black text-neutral-900 dark:text-white uppercase tracking-tight">{m.concepto}</p>
+                                                    <div className="flex items-center gap-2 mt-1">
+                                                        {m.es_traslado && <span className="px-2 py-0.5 bg-blue-100 text-blue-700 rounded text-[8px] font-black uppercase">Traslado</span>}
+                                                        {m.caja_movimientos_detalles && m.caja_movimientos_detalles.length > 0 && (
+                                                            <span className="text-blue-500 bg-blue-50 dark:bg-blue-900/20 px-2 py-0.5 rounded text-[8px] font-black uppercase">{m.caja_movimientos_detalles.length} ítems</span>
+                                                        )}
+                                                    </div>
+                                                </div>
+                                           </div>
+                                       </td>
+                                       <td className="px-8 py-5">
+                                           <span className="px-3 py-1 bg-neutral-100 dark:bg-neutral-800 text-neutral-600 rounded-lg text-[9px] font-black uppercase tracking-widest">
+                                               {m.categoria}
+                                           </span>
+                                       </td>
+                                       <td className="px-8 py-5 text-right">
+                                           <p className={`text-md font-black italic ${m.tipo === 'ingreso' ? 'text-emerald-600' : 'text-rose-600'}`}>
+                                               {m.tipo === 'ingreso' ? '+' : '-'}${Number(m.monto).toFixed(2)}
+                                           </p>
+                                           <p className="text-[9px] font-black text-neutral-400 uppercase mt-1">{m.metodo_pago}</p>
+                                       </td>
+                                       <td className="px-8 py-5 text-right">
+                                           <div className="flex justify-end gap-2" onClick={(e) => e.stopPropagation()}>
+                                                {m.categoria === 'Reparaciones' && m.referencia_id && (
+                                                    <button 
+                                                        onClick={() => router.push(`/reparaciones?edit_id=${m.referencia_id}`)}
+                                                        className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-neutral-100/50 hover:bg-neutral-200 dark:bg-neutral-800 dark:hover:bg-neutral-700 text-neutral-700 dark:text-neutral-300 rounded-lg text-[9px] font-black uppercase tracking-widest transition-colors"
+                                                        title="Ir a modificar la reparación de origen"
+                                                    >
+                                                        <ExternalLink className="w-3.5 h-3.5" />
+                                                    </button>
+                                                )}
+                                                {!m.concepto.startsWith('ANULACIÓN:') && !m.es_traslado && (
+                                                    <button 
+                                                        onClick={() => handleAnularMovimiento(m)}
+                                                        className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-rose-50 hover:bg-rose-100 dark:bg-rose-900/20 dark:hover:bg-rose-900/40 text-rose-600 dark:text-rose-400 rounded-lg text-[9px] font-black uppercase tracking-widest transition-colors"
+                                                        title="Anular Movimiento (Crear Reversión)"
+                                                    >
+                                                        <Ban className="w-3.5 h-3.5" />
+                                                    </button>
+                                                )}
+                                           </div>
+                                       </td>
+                                   </tr>
+                                   {expandedMovId === m.id && m.caja_movimientos_detalles && m.caja_movimientos_detalles.length > 0 && (
+                                       <tr className="bg-neutral-50/30 dark:bg-neutral-900/30">
+                                           <td colSpan={5} className="px-20 py-6">
+                                                <div className="animate-in slide-in-from-top-2 duration-300">
+                                                    <p className="text-[9px] font-black uppercase text-neutral-400 tracking-widest mb-4 flex items-center gap-2">
+                                                        <Search className="w-3 h-3" /> Detalle de artículos en esta transacción
+                                                    </p>
+                                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                                                        {m.caja_movimientos_detalles.map((det, idx) => (
+                                                            <div key={idx} className="flex justify-between items-center bg-white dark:bg-neutral-800 p-4 rounded-2xl border border-neutral-100 dark:border-neutral-700/50 shadow-sm">
+                                                                <div className="min-w-0 pr-4">
+                                                                    <p className="text-[11px] font-bold text-neutral-700 dark:text-neutral-300 uppercase truncate">{det.descripcion}</p>
+                                                                    <p className="text-[9px] font-black text-neutral-400 mt-0.5 tracking-tighter">{det.cantidad} Unidades x ${Number(det.precio_unitario).toFixed(2)}</p>
+                                                                </div>
+                                                                <span className="text-xs font-black text-neutral-900 dark:text-white shrink-0">${Number(det.subtotal).toFixed(2)}</span>
+                                                            </div>
+                                                        ))}
+                                                    </div>
+                                                </div>
+                                           </td>
+                                       </tr>
+                                   )}
+                               </Fragment>
                           ))}
                           {movimientos.length === 0 && (
                               <tr>

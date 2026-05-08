@@ -3,7 +3,7 @@
 import { useEffect, useState, useMemo } from "react";
 import { useAuth } from "@/components/AuthProvider";
 import { supabase } from "@/lib/supabase";
-import { PieChart, TrendingUp, History, CalendarDays, Building2, CheckCircle2, Search, X } from "lucide-react";
+import { PieChart, TrendingUp, History, CalendarDays, Building2, CheckCircle2, Search, X, Calendar, ChevronLeft, ChevronRight, ArrowUpRight, ArrowDownRight, Info } from "lucide-react";
 import { useRouter } from "next/navigation";
 
 interface CajaSesion {
@@ -21,7 +21,15 @@ interface CajaSesion {
   perfiles_cierre?: { email: string };
 }
 
+interface MovimientoDetalle {
+    descripcion: string;
+    cantidad: number;
+    precio_unitario: number;
+    subtotal: number;
+}
+
 interface Movimiento {
+    id: string;
     tipo: 'ingreso' | 'egreso';
     monto: number;
     es_traslado: boolean;
@@ -30,6 +38,7 @@ interface Movimiento {
     sesion_id?: string;
     metodo_pago?: string;
     subcategoria_id?: string;
+    caja_movimientos_detalles?: MovimientoDetalle[];
 }
 
 export default function ReportesPage() {
@@ -48,11 +57,27 @@ export default function ReportesPage() {
   const [fetching, setFetching] = useState(true);
 
   // Chart States
-  const [timeFilter, setTimeFilter] = useState<'7d' | '30d' | '12m' | 'all'>('7d');
+  const [timeFilter, setTimeFilter] = useState<'7d' | '30d' | '12m' | 'month' | 'all'>('7d');
+  const [selectedMonth, setSelectedMonth] = useState<number>(new Date().getMonth());
+  const [selectedYear, setSelectedYear] = useState<number>(new Date().getFullYear());
   const [hoverData, setHoverData] = useState<{label: string, ingreso: number, egreso: number} | null>(null);
+
+  // Drill-down state
+  const [drillDownItem, setDrillDownItem] = useState<{ type: 'concept' | 'subcategory', value: string, name: string } | null>(null);
+  const [expandedMovId, setExpandedMovId] = useState<string | null>(null);
 
   // Turno modal state
   const [selectedSesionForDetails, setSelectedSesionForDetails] = useState<CajaSesion | null>(null);
+
+  // Lock body scroll when drawer/modal is open
+  useEffect(() => {
+    if (drillDownItem || selectedSesionForDetails) {
+      document.body.style.overflow = 'hidden';
+    } else {
+      document.body.style.overflow = 'unset';
+    }
+    return () => { document.body.style.overflow = 'unset'; };
+  }, [drillDownItem, selectedSesionForDetails]);
 
   useEffect(() => {
     if (user && rol === 'admin') {
@@ -75,7 +100,12 @@ export default function ReportesPage() {
 
                 const { data: movs, error: movsError } = await supabase
                     .from('caja_movimientos')
-                    .select('id, tipo, monto, es_traslado, created_at, concepto, sesion_id, metodo_pago, categoria, subcategoria_id')
+                    .select(`
+                        id, tipo, monto, es_traslado, created_at, concepto, sesion_id, metodo_pago, categoria, subcategoria_id,
+                        caja_movimientos_detalles (
+                            descripcion, cantidad, precio_unitario, subtotal
+                        )
+                    `)
                     .gte('created_at', limiteDoceMeses.toISOString())
                     .order('created_at', { ascending: true });
                 
@@ -131,7 +161,18 @@ export default function ReportesPage() {
 
       movimientos.forEach(m => {
           if (m.es_traslado) return;
-          if (timeFilter !== 'all' && new Date(m.created_at) < limitDate) return;
+          const mDate = new Date(m.created_at);
+          
+          let isIncluded = false;
+          if (timeFilter === 'month') {
+              isIncluded = mDate.getMonth() === selectedMonth && mDate.getFullYear() === selectedYear;
+          } else if (timeFilter === 'all') {
+              isIncluded = true;
+          } else {
+              isIncluded = mDate >= limitDate;
+          }
+
+          if (!isIncluded) return;
           
           if (m.tipo === 'ingreso') {
               ingresos += Number(m.monto);
@@ -154,12 +195,13 @@ export default function ReportesPage() {
       const topEgresos = Array.from(statsEgresos, ([concepto, monto]) => ({ concepto, monto })).sort(descOrder).slice(0, 5);
       
       const topSubcategorias = Array.from(statsSubcategorias, ([subcategoria_id, data]) => ({ 
+          id: subcategoria_id,
           nombre: subcategoriasMap.get(subcategoria_id) || 'Desconocida', 
           ...data 
       })).sort(descOrder).slice(0, 5);
 
       return { ingresos, egresos, margen: ingresos - egresos, topIngresos, topEgresos, topSubcategorias };
-  }, [movimientos, timeFilter, subcategoriasMap]);
+  }, [movimientos, timeFilter, selectedMonth, selectedYear, subcategoriasMap]);
 
   const chartData = useMemo(() => {
     const dataMap = new Map<string, {ingreso: number, egreso: number}>();
@@ -175,6 +217,12 @@ export default function ReportesPage() {
         for (let i = 29; i >= 0; i--) {
             const d = new Date(now.getFullYear(), now.getMonth(), now.getDate() - i);
             dataMap.set(d.toLocaleDateString('es-ES', { day: '2-digit', month: '2-digit' }), { ingreso: 0, egreso: 0 });
+        }
+    } else if (timeFilter === 'month') {
+        const daysInMonth = new Date(selectedYear, selectedMonth + 1, 0).getDate();
+        for (let i = 1; i <= daysInMonth; i++) {
+            const d = new Date(selectedYear, selectedMonth, i);
+            dataMap.set(d.toLocaleDateString('es-ES', { day: 'numeric' }), { ingreso: 0, egreso: 0 });
         }
     } else if (timeFilter === '12m') {
         for (let i = 11; i >= 0; i--) {
@@ -205,6 +253,10 @@ export default function ReportesPage() {
             key = md.toLocaleDateString('es-ES', { weekday: 'short', day: 'numeric' });
         } else if (timeFilter === '30d') {
             key = md.toLocaleDateString('es-ES', { day: '2-digit', month: '2-digit' });
+        } else if (timeFilter === 'month') {
+            if (md.getMonth() === selectedMonth && md.getFullYear() === selectedYear) {
+                key = md.toLocaleDateString('es-ES', { day: 'numeric' });
+            }
         } else if (timeFilter === '12m') {
             const dt = new Date(md.getFullYear(), md.getMonth(), 1);
             key = dt.toLocaleDateString('es-ES', { month: 'short', year: '2-digit' });
@@ -323,13 +375,20 @@ export default function ReportesPage() {
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mt-6 relative z-10 w-full mb-8">
           <div className="bg-white dark:bg-neutral-900 rounded-[3rem] border border-neutral-100 dark:border-neutral-800 p-8 shadow-2xl">
               <h4 className="text-xl font-black text-neutral-900 dark:text-white uppercase tracking-tighter italic mb-1">Top Ingresos</h4>
-              <p className="text-[10px] font-black text-neutral-400 uppercase tracking-widest mb-6">Conceptos más rentables (Histórico)</p>
+              <p className="text-[10px] font-black text-neutral-400 uppercase tracking-widest mb-6">Conceptos más rentables</p>
               <div className="space-y-4">
                   {globalStats.topIngresos.map((ing, i) => (
-                      <div key={i} className="flex justify-between items-center bg-emerald-50/50 dark:bg-emerald-900/10 p-4 rounded-2xl border border-emerald-100 dark:border-emerald-900/30">
-                          <span className="font-bold text-sm text-neutral-700 dark:text-neutral-300 truncate pr-4">{ing.concepto}</span>
+                      <button 
+                        key={i} 
+                        onClick={() => setDrillDownItem({ type: 'concept', value: ing.concepto, name: ing.concepto })}
+                        className="w-full flex justify-between items-center bg-emerald-50/50 dark:bg-emerald-900/10 p-4 rounded-2xl border border-emerald-100 dark:border-emerald-900/30 hover:scale-[1.02] active:scale-95 transition-all group"
+                      >
+                          <div className="flex items-center gap-3 truncate pr-4">
+                              <ArrowUpRight className="w-3.5 h-3.5 text-emerald-500 opacity-0 group-hover:opacity-100 transition-opacity" />
+                              <span className="font-bold text-sm text-neutral-700 dark:text-neutral-300 truncate">{ing.concepto}</span>
+                          </div>
                           <span className="font-black text-emerald-600 dark:text-emerald-400 shrink-0">${ing.monto.toFixed(2)}</span>
-                      </div>
+                      </button>
                   ))}
                   {globalStats.topIngresos.length === 0 && (
                       <div className="text-center py-8 text-neutral-400 italic text-sm font-medium">No hay datos suficientes.</div>
@@ -339,13 +398,20 @@ export default function ReportesPage() {
           
           <div className="bg-white dark:bg-neutral-900 rounded-[3rem] border border-neutral-100 dark:border-neutral-800 p-8 shadow-2xl">
               <h4 className="text-xl font-black text-neutral-900 dark:text-white uppercase tracking-tighter italic mb-1">Top Gastos</h4>
-              <p className="text-[10px] font-black text-neutral-400 uppercase tracking-widest mb-6">Desglose de mayores egresos (Histórico)</p>
+              <p className="text-[10px] font-black text-neutral-400 uppercase tracking-widest mb-6">Desglose de mayores egresos</p>
               <div className="space-y-4">
                   {globalStats.topEgresos.map((egr, i) => (
-                      <div key={i} className="flex justify-between items-center bg-rose-50/50 dark:bg-rose-900/10 p-4 rounded-2xl border border-rose-100 dark:border-rose-900/30">
-                          <span className="font-bold text-sm text-neutral-700 dark:text-neutral-300 truncate pr-4">{egr.concepto}</span>
+                      <button 
+                        key={i} 
+                        onClick={() => setDrillDownItem({ type: 'concept', value: egr.concepto, name: egr.concepto })}
+                        className="w-full flex justify-between items-center bg-rose-50/50 dark:bg-rose-900/10 p-4 rounded-2xl border border-rose-100 dark:border-rose-900/30 hover:scale-[1.02] active:scale-95 transition-all group"
+                      >
+                          <div className="flex items-center gap-3 truncate pr-4">
+                              <ArrowDownRight className="w-3.5 h-3.5 text-rose-500 opacity-0 group-hover:opacity-100 transition-opacity" />
+                              <span className="font-bold text-sm text-neutral-700 dark:text-neutral-300 truncate">{egr.concepto}</span>
+                          </div>
                           <span className="font-black text-rose-600 dark:text-rose-400 shrink-0">${egr.monto.toFixed(2)}</span>
-                      </div>
+                      </button>
                   ))}
                   {globalStats.topEgresos.length === 0 && (
                       <div className="text-center py-8 text-neutral-400 italic text-sm font-medium">No hay datos suficientes.</div>
@@ -355,16 +421,23 @@ export default function ReportesPage() {
 
           <div className="bg-white dark:bg-neutral-900 rounded-[3rem] border border-neutral-100 dark:border-neutral-800 p-8 shadow-2xl">
               <h4 className="text-xl font-black text-neutral-900 dark:text-white uppercase tracking-tighter italic mb-1">Fugas por Subcategoría</h4>
-              <p className="text-[10px] font-black text-neutral-400 uppercase tracking-widest mb-6">Frecuencia y volumen (Histórico)</p>
+              <p className="text-[10px] font-black text-neutral-400 uppercase tracking-widest mb-6">Frecuencia y volumen</p>
               <div className="space-y-4">
                   {globalStats.topSubcategorias.map((sub, i) => (
-                      <div key={i} className="flex justify-between items-center bg-amber-50/50 dark:bg-amber-900/10 p-4 rounded-2xl border border-amber-100 dark:border-amber-900/30">
+                      <button 
+                        key={i} 
+                        onClick={() => setDrillDownItem({ type: 'subcategory', value: sub.id, name: sub.nombre })}
+                        className="w-full flex justify-between items-center bg-amber-50/50 dark:bg-amber-900/10 p-4 rounded-2xl border border-amber-100 dark:border-amber-900/30 hover:scale-[1.02] active:scale-95 transition-all group text-left"
+                      >
                           <div className="min-w-0 pr-4">
-                              <p className="font-bold text-sm text-neutral-700 dark:text-neutral-300 truncate">{sub.nombre}</p>
-                              <p className="text-[10px] font-black text-amber-600 dark:text-amber-500 uppercase mt-0.5">{sub.count} compras este periodo</p>
+                              <div className="flex items-center gap-2">
+                                <History className="w-3 h-3 text-amber-500 opacity-0 group-hover:opacity-100 transition-opacity" />
+                                <p className="font-bold text-sm text-neutral-700 dark:text-neutral-300 truncate">{sub.nombre}</p>
+                              </div>
+                              <p className="text-[10px] font-black text-amber-600 dark:text-amber-500 uppercase mt-0.5">{sub.count} registros</p>
                           </div>
                           <span className="font-black text-rose-600 dark:text-rose-400 shrink-0">-${sub.monto.toFixed(2)}</span>
-                      </div>
+                      </button>
                   ))}
                   {globalStats.topSubcategorias.length === 0 && (
                       <div className="text-center py-8 text-neutral-400 italic text-sm font-medium">Asigna subcategorías al registrar gastos.</div>
@@ -380,22 +453,65 @@ export default function ReportesPage() {
                   <h4 className="text-2xl font-black text-neutral-900 dark:text-white uppercase tracking-tighter italic">Comportamiento P&L</h4>
                   <p className="text-[10px] font-black text-neutral-400 uppercase tracking-widest mt-1">Evolución en el tiempo (Ingresos vs Egresos)</p>
               </div>
-              <div className="flex bg-neutral-100 dark:bg-neutral-800 rounded-full p-1 w-full md:w-auto">
-                  {['7d', '30d', '12m', 'all'].map(tf => (
+              <div className="flex bg-neutral-100 dark:bg-neutral-800 rounded-full p-1 w-full md:w-auto overflow-x-auto no-scrollbar">
+                  {['7d', '30d', '12m', 'month', 'all'].map(tf => (
                       <button 
                         key={tf}
                         onClick={() => setTimeFilter(tf as any)}
-                        className={`flex-1 md:flex-none px-6 py-3 rounded-full text-[10px] font-black uppercase tracking-widest transition-all cursor-pointer ${timeFilter === tf ? 'bg-white dark:bg-neutral-900 text-black dark:text-white shadow-xl scale-105 z-10' : 'text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-300'}`}
+                        className={`flex-1 md:flex-none px-5 py-3 rounded-full text-[9px] font-black uppercase tracking-widest transition-all cursor-pointer whitespace-nowrap ${timeFilter === tf ? 'bg-white dark:bg-neutral-900 text-black dark:text-white shadow-xl scale-105 z-10' : 'text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-300'}`}
                       >
-                          {tf === '7d' ? '7 Días' : tf === '30d' ? '30 Días' : tf === '12m' ? '1 Año' : 'Histórico'}
+                          {tf === '7d' ? '7 Días' : tf === '30d' ? '30 Días' : tf === '12m' ? '1 Año' : tf === 'month' ? 'Mensual' : 'Histórico'}
                       </button>
                   ))}
               </div>
           </div>
 
+          {timeFilter === 'month' && (
+              <div className="flex items-center gap-6 mb-12 animate-in slide-in-from-top-4 duration-500 bg-neutral-50 dark:bg-neutral-800/30 p-6 rounded-[2rem] border border-neutral-100 dark:border-neutral-800">
+                  <div className="flex items-center gap-2">
+                      <Calendar className="w-5 h-5 text-neutral-400" />
+                      <span className="text-[10px] font-black uppercase tracking-widest text-neutral-500">Periodo de Auditoría:</span>
+                  </div>
+                  <div className="flex items-center gap-4">
+                      <button 
+                        onClick={() => {
+                            if (selectedMonth === 0) {
+                                setSelectedMonth(11);
+                                setSelectedYear(selectedYear - 1);
+                            } else {
+                                setSelectedMonth(selectedMonth - 1);
+                            }
+                        }}
+                        className="p-3 rounded-full bg-white dark:bg-neutral-900 shadow-md hover:bg-neutral-50 transition-all border border-neutral-100 dark:border-neutral-800"
+                      >
+                          <ChevronLeft className="w-4 h-4" />
+                      </button>
+                      <div className="text-center min-w-[140px]">
+                          <p className="text-lg font-black uppercase italic tracking-tighter text-neutral-900 dark:text-white">
+                              {new Date(selectedYear, selectedMonth).toLocaleDateString('es-ES', { month: 'long' })}
+                          </p>
+                          <p className="text-[10px] font-black text-neutral-400 uppercase tracking-widest">{selectedYear}</p>
+                      </div>
+                      <button 
+                        onClick={() => {
+                            if (selectedMonth === 11) {
+                                setSelectedMonth(0);
+                                setSelectedYear(selectedYear + 1);
+                            } else {
+                                setSelectedMonth(selectedMonth + 1);
+                            }
+                        }}
+                        className="p-3 rounded-full bg-white dark:bg-neutral-900 shadow-md hover:bg-neutral-50 transition-all border border-neutral-100 dark:border-neutral-800"
+                      >
+                          <ChevronRight className="w-4 h-4" />
+                      </button>
+                  </div>
+              </div>
+          )}
+
           {/* The Bars Area Wrapper for horizontal scrolling */}
           <div className="overflow-x-auto custom-scrollbar pb-10 pt-4 -mx-4 px-4 md:mx-0 md:px-0">
-              <div className="relative h-72 sm:h-80 flex items-end justify-start md:justify-center gap-2 sm:gap-4 lg:gap-8 min-w-max md:min-w-0">
+              <div className="relative h-72 sm:h-80 flex items-end justify-start gap-2 sm:gap-4 lg:gap-6 min-w-max px-4">
                   {/* Background Grid Lines optional, but let's keep it minimalist without them */}
                   
                   {chartData.map((data, i) => (
@@ -552,9 +668,145 @@ export default function ReportesPage() {
           </div>
       </div>
 
+      {/* Drawer Desglose Auditado (Drill-down) */}
+      {drillDownItem && (() => {
+          // Calculate stats for selected item
+          const currentMonthMovs = movimientos.filter(m => {
+              if (m.es_traslado) return false;
+              const d = new Date(m.created_at);
+              const isPeriodMatch = d.getMonth() === selectedMonth && d.getFullYear() === selectedYear;
+              if (drillDownItem.type === 'concept') return isPeriodMatch && m.concepto === drillDownItem.value;
+              return isPeriodMatch && m.subcategoria_id === drillDownItem.value;
+          });
+
+          const prevMonth = selectedMonth === 0 ? 11 : selectedMonth - 1;
+          const prevYear = selectedMonth === 0 ? selectedYear - 1 : selectedYear;
+          const prevMonthMovs = movimientos.filter(m => {
+              if (m.es_traslado) return false;
+              const d = new Date(m.created_at);
+              const isPeriodMatch = d.getMonth() === prevMonth && d.getFullYear() === prevYear;
+              if (drillDownItem.type === 'concept') return isPeriodMatch && m.concepto === drillDownItem.value;
+              return isPeriodMatch && m.subcategoria_id === drillDownItem.value;
+          });
+
+          const currentTotal = currentMonthMovs.reduce((acc, m) => acc + Number(m.monto), 0);
+          const prevTotal = prevMonthMovs.reduce((acc, m) => acc + Number(m.monto), 0);
+          const diff = prevTotal === 0 ? 100 : ((currentTotal - prevTotal) / prevTotal) * 100;
+
+          return (
+            <div className="fixed inset-0 z-[100] flex justify-end">
+                <div onClick={() => setDrillDownItem(null)} className="absolute inset-0 bg-black/60 backdrop-blur-sm animate-in fade-in duration-300"></div>
+                <div className="relative w-full max-w-lg h-full bg-white dark:bg-neutral-900 shadow-2xl flex flex-col animate-in slide-in-from-right duration-500 border-l border-neutral-100 dark:border-neutral-800">
+                    {/* Header */}
+                    <div className="p-8 border-b border-neutral-100 dark:border-neutral-800 bg-neutral-50/50 dark:bg-neutral-800/30">
+                        <div className="flex justify-between items-start mb-6">
+                            <button onClick={() => setDrillDownItem(null)} className="p-3 rounded-full bg-white dark:bg-neutral-900 border border-neutral-200 dark:border-neutral-800 shadow-sm hover:scale-110 transition-all"><X className="w-5 h-5" /></button>
+                            <span className="text-[10px] font-black uppercase tracking-[0.3em] text-neutral-400">Auditoría Profunda</span>
+                        </div>
+                        <h2 className="text-3xl font-black italic uppercase tracking-tighter leading-tight text-neutral-900 dark:text-white">{drillDownItem.name}</h2>
+                        <p className="text-[10px] font-black text-amber-600 uppercase tracking-widest mt-2">{drillDownItem.type === 'concept' ? 'Análisis por Concepto' : 'Análisis por Subcategoría'}</p>
+                    </div>
+
+                    {/* Comparative Stats & List Container */}
+                    <div className="p-8 space-y-6 flex-1 flex flex-col min-h-0">
+                        <div className="grid grid-cols-2 gap-4 shrink-0">
+                            <div className="p-5 rounded-3xl bg-neutral-50 dark:bg-neutral-800/50 border border-neutral-100 dark:border-neutral-800">
+                                <p className="text-[9px] font-black text-neutral-400 uppercase tracking-widest mb-1">Total Periodo</p>
+                                <p className="text-2xl font-black text-neutral-900 dark:text-white">${currentTotal.toFixed(2)}</p>
+                                <p className="text-[10px] font-bold text-neutral-500 mt-1">{currentMonthMovs.length} transacciones</p>
+                            </div>
+                            <div className="p-5 rounded-3xl bg-neutral-50 dark:bg-neutral-800/50 border border-neutral-100 dark:border-neutral-800">
+                                <p className="text-[9px] font-black text-neutral-400 uppercase tracking-widest mb-1">Vs. Mes Anterior</p>
+                                <div className="flex items-center gap-2">
+                                    <p className={`text-2xl font-black ${diff > 0 ? 'text-rose-500' : 'text-emerald-500'}`}>
+                                        {diff > 0 ? '+' : ''}{diff.toFixed(1)}%
+                                    </p>
+                                    {diff > 0 ? <TrendingUp className="w-4 h-4 text-rose-500" /> : <ArrowDownRight className="w-4 h-4 text-emerald-500" />}
+                                </div>
+                                <p className="text-[10px] font-bold text-neutral-500 mt-1">Anterior: ${prevTotal.toFixed(0)}</p>
+                            </div>
+                        </div>
+
+                        {/* List */}
+                        <div className="flex-1 min-h-0 flex flex-col space-y-4 overflow-hidden">
+                            <div className="flex justify-between items-center">
+                                <p className="text-[10px] font-black uppercase tracking-widest text-neutral-400">Historial de Movimientos</p>
+                                <Info className="w-3.5 h-3.5 text-neutral-300" />
+                            </div>
+                            <div className="flex-1 overflow-y-auto space-y-3 pr-2 custom-scrollbar pb-10">
+                                {currentMonthMovs.sort((a,b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()).map((m, i) => (
+                                    <div 
+                                        key={i} 
+                                        onClick={() => setExpandedMovId(expandedMovId === m.id ? null : m.id)}
+                                        className={`p-5 rounded-3xl bg-white dark:bg-neutral-900 border transition-all shadow-sm cursor-pointer group ${
+                                            expandedMovId === m.id ? 'border-blue-500 ring-2 ring-blue-500/10' : 'border-neutral-100 dark:border-neutral-800 hover:border-neutral-300 dark:hover:border-neutral-700'
+                                        }`}
+                                    >
+                                        <div className="flex justify-between items-start mb-2">
+                                            <div className="flex flex-col">
+                                                <span className="text-[9px] font-black text-neutral-400 uppercase tracking-tighter">
+                                                    {new Date(m.created_at).toLocaleDateString()} - {new Date(m.created_at).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}
+                                                </span>
+                                                <p className="text-xs font-black text-neutral-800 dark:text-neutral-200 leading-tight mt-1 group-hover:text-blue-500 transition-colors uppercase italic">{m.concepto || 'Sin concepto'}</p>
+                                            </div>
+                                            <div className="text-right">
+                                                <span className={`text-base font-black italic tracking-tighter ${m.tipo === 'ingreso' ? 'text-emerald-500' : 'text-rose-500'}`}>
+                                                    {m.tipo === 'ingreso' ? '+' : '-'}${Number(m.monto).toFixed(2)}
+                                                </span>
+                                            </div>
+                                        </div>
+
+                                        <div className="mt-4 flex items-center justify-between">
+                                            <div className="flex items-center gap-4 text-[9px] font-black uppercase text-neutral-400">
+                                                <span className="flex items-center gap-1 bg-neutral-50 dark:bg-neutral-800 px-2 py-1 rounded-md"><Building2 className="w-2.5 h-2.5" /> {m.metodo_pago}</span>
+                                                {m.caja_movimientos_detalles && m.caja_movimientos_detalles.length > 0 && (
+                                                    <span className="flex items-center gap-1 text-blue-500 bg-blue-50 dark:bg-blue-900/20 px-2 py-1 rounded-md">
+                                                        {m.caja_movimientos_detalles.length} {m.caja_movimientos_detalles.length === 1 ? 'Artículo' : 'Artículos'}
+                                                    </span>
+                                                )}
+                                            </div>
+                                            <div className={`transition-transform duration-300 ${expandedMovId === m.id ? 'rotate-180' : ''}`}>
+                                                <ChevronRight className="w-4 h-4 text-neutral-300" />
+                                            </div>
+                                        </div>
+
+                                        {/* Expandable Details Area */}
+                                        {expandedMovId === m.id && m.caja_movimientos_detalles && m.caja_movimientos_detalles.length > 0 && (
+                                            <div className="mt-6 pt-6 border-t border-dashed border-neutral-100 dark:border-neutral-800 animate-in slide-in-from-top-2 duration-300">
+                                                <p className="text-[9px] font-black uppercase tracking-widest text-neutral-400 mb-4 flex items-center gap-2">
+                                                    <Search className="w-3 h-3" /> Desglose de Artículos
+                                                </p>
+                                                <div className="space-y-3">
+                                                    {m.caja_movimientos_detalles.map((det, idx) => (
+                                                        <div key={idx} className="flex justify-between items-center bg-neutral-50/50 dark:bg-neutral-800/20 p-3 rounded-xl border border-neutral-100/50 dark:border-neutral-800/50">
+                                                            <div className="min-w-0 pr-4">
+                                                                <p className="text-[11px] font-bold text-neutral-700 dark:text-neutral-300 truncate uppercase">{det.descripcion}</p>
+                                                                <p className="text-[9px] font-black text-neutral-400 mt-0.5">{det.cantidad} x ${Number(det.precio_unitario).toFixed(2)}</p>
+                                                            </div>
+                                                            <span className="text-xs font-black text-neutral-900 dark:text-white shrink-0">${Number(det.subtotal).toFixed(2)}</span>
+                                                        </div>
+                                                    ))}
+                                                </div>
+                                            </div>
+                                        )}
+                                    </div>
+                                ))}
+                                {currentMonthMovs.length === 0 && (
+                                    <div className="text-center py-20 bg-neutral-50 dark:bg-neutral-800/30 rounded-3xl border-2 border-dashed border-neutral-100 dark:border-neutral-800">
+                                        <p className="text-[10px] font-black text-neutral-400 uppercase">Sin movimientos en este periodo</p>
+                                    </div>
+                                )}
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+          );
+      })()}
+
       {/* Modal Desglose de Turno */}
       {selectedSesionForDetails && (
-          <div onClick={() => setSelectedSesionForDetails(null)} className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div onClick={() => setSelectedSesionForDetails(null)} className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[80] flex items-center justify-center p-4">
               <div onClick={(e) => e.stopPropagation()} className="bg-white dark:bg-neutral-900 w-full max-w-3xl rounded-[2rem] p-8 shadow-2xl flex flex-col max-h-[85vh] animate-in zoom-in-95 duration-200">
                   <div className="flex justify-between items-center mb-6">
                       <div>

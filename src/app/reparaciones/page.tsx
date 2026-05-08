@@ -79,6 +79,7 @@ export default function ReparacionesPage() {
   const [workloadStats, setWorkloadStats] = useState<any[]>([]);
   const [selectedReparacionHistorial, setSelectedReparacionHistorial] = useState<Historico[]>([]);
   const [inventarioItems, setInventarioItems] = useState<any[]>([]);
+  const [selectedReparacionInsumos, setSelectedReparacionInsumos] = useState<any[]>([]);
   const [showCustomerSuggestions, setShowCustomerSuggestions] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState("");
@@ -247,6 +248,46 @@ export default function ReparacionesPage() {
       setSelectedReparacionHistorial(data || []);
     } catch (e) {
       console.error("Error History:", e);
+    }
+  }
+
+  async function fetchInsumos(reparacionId: string) {
+    try {
+      const { data } = await supabase
+        .from('insumos_reparacion')
+        .select(`*, inventario(nombre, codigo)`)
+        .eq('reparacion_id', reparacionId);
+      setSelectedReparacionInsumos(data || []);
+    } catch (e) {
+      console.error("Error Insumos:", e);
+    }
+  }
+
+  async function handleRemoveInsumo(insumoRelId: string, insumoId: string, qty: number, nombre: string) {
+    if (!confirm(`¿Desea remover "${nombre}" de la reparación y devolver ${qty} unidad(es) al inventario?`)) return;
+    
+    try {
+      const { error: delError } = await supabase
+        .from('insumos_reparacion')
+        .delete()
+        .eq('id', insumoRelId);
+      
+      if (delError) throw delError;
+
+      const { data: item } = await supabase.from('inventario').select('stock_actual').eq('id', insumoId).single();
+      if (item) {
+        await supabase.from('inventario').update({ 
+          stock_actual: item.stock_actual + qty 
+        }).eq('id', insumoId);
+      }
+
+      await createHistoryEntry(selectedReparacion!.id, "Insumo Removido", null, null, `Se removió ${qty}x ${nombre}. El stock fue devuelto al inventario.`);
+
+      fetchInsumos(selectedReparacion!.id);
+      fetchHistory(selectedReparacion!.id);
+      alert("Insumo removido y stock restaurado.");
+    } catch (err: any) {
+      alert("Error al remover insumo: " + err.message);
     }
   }
 
@@ -426,7 +467,15 @@ export default function ReparacionesPage() {
             metodo_pago: metodoPagoAbono,
             concepto: "Abono / Adelanto de Servicio",
             fecha: new Date().toLocaleString(),
-            atendido_por: user?.email?.split('@')[0] || "Admin"
+            atendido_por: user?.email?.split('@')[0] || "Admin",
+            subtotal: diffAbono,
+            descuento: 0,
+            detalles: [{
+              cantidad: 1,
+              descripcion: `Abono de Reparación - ${baseRepair.marca} ${baseRepair.modelo_descripcion}`,
+              precio_unitario: diffAbono,
+              subtotal: diffAbono
+            }]
           });
         }
         
@@ -454,7 +503,15 @@ export default function ReparacionesPage() {
               metodo_pago: metodoPagoAbono,
               concepto: "Abono Inicial / Recibo de Servicio",
               fecha: new Date().toLocaleString(),
-              atendido_por: user?.email?.split('@')[0] || "Admin"
+              atendido_por: user?.email?.split('@')[0] || "Admin",
+              subtotal: baseRepair.abono,
+              descuento: 0,
+              detalles: [{
+                cantidad: 1,
+                descripcion: `Abono Inicial - ${baseRepair.marca} ${baseRepair.modelo_descripcion}`,
+                precio_unitario: baseRepair.abono,
+                subtotal: baseRepair.abono
+              }]
             });
           }
           await createHistoryEntry(data[0].id, "Registro Inicial", null, form.estado, "Ingreso inicial del reloj al taller.");
@@ -509,7 +566,15 @@ export default function ReparacionesPage() {
            metodo_pago: "Efectivo",
            concepto: "Cancelación de Saldo y Entrega",
            fecha: new Date().toLocaleString(),
-           atendido_por: user?.email?.split('@')[0] || "Admin"
+           atendido_por: user?.email?.split('@')[0] || "Admin",
+           subtotal: rep.saldo_pendiente,
+           descuento: 0,
+           detalles: [{
+             cantidad: 1,
+             descripcion: `Cancelación de Saldo - ${rep.marca} ${rep.modelo_descripcion || ""}`,
+             precio_unitario: rep.saldo_pendiente,
+             subtotal: rep.saldo_pendiente
+           }]
         });
       } else {
         const { error } = await supabase.from('reparaciones').update({ estado: newStatus }).eq('id', id);
@@ -606,6 +671,10 @@ export default function ReparacionesPage() {
   };
 
   const startEdit = (rep: Reparacion) => {
+    if (!cajaSession) {
+      alert("Debes ABRIR CAJA primero para poder editar tickets y gestionar abonos.");
+      return;
+    }
     setForm({
       numero_recibo: rep.numero_recibo,
       nombre_cliente: rep.clientes?.nombre_completo || "",
@@ -707,7 +776,13 @@ export default function ReparacionesPage() {
           <button onClick={() => setShowImportModal(true)} className="px-6 py-4 rounded-2xl bg-neutral-100 dark:bg-neutral-800 text-[10px] font-black uppercase tracking-widest hover:bg-neutral-200 transition-all flex items-center gap-2">
             <Upload className="w-4 h-4" /> Importar
           </button>
-          <button onClick={() => { setIsEditing(false); setShowAddModal(true); setForm({ ...form, numero_recibo: "", nombre_cliente: "" }); }} className="px-6 py-4 rounded-2xl bg-black dark:bg-white text-white dark:text-black text-[10px] font-black uppercase tracking-widest hover:opacity-90 transition-all flex items-center gap-2 shadow-lg shadow-black/10">
+          <button onClick={() => { 
+            if (!cajaSession) {
+              alert("Debes ABRIR CAJA primero para poder registrar una reparación y cobrar abonos.");
+              return;
+            }
+            setIsEditing(false); setShowAddModal(true); setForm({ ...form, numero_recibo: "", nombre_cliente: "" }); 
+          }} className="px-6 py-4 rounded-2xl bg-black dark:bg-white text-white dark:text-black text-[10px] font-black uppercase tracking-widest hover:opacity-90 transition-all flex items-center gap-2 shadow-lg shadow-black/10">
             <Plus className="w-4 h-4" /> Nuevo Ticket
           </button>
         </div>
@@ -946,7 +1021,7 @@ export default function ReparacionesPage() {
                 <tr><td colSpan={5} className="p-32 text-center text-neutral-400 font-bold italic">No se encontraron resultados.</td></tr>
               ) : (
                 sortedReparaciones.slice(0, 50).map((rep) => (
-                  <tr key={rep.id} onClick={() => { setSelectedReparacion(rep); fetchHistory(rep.id); }} className="group hover:bg-neutral-50 dark:hover:bg-neutral-800/30 transition-all cursor-pointer">
+                  <tr key={rep.id} onClick={() => { setSelectedReparacion(rep); fetchHistory(rep.id); fetchInsumos(rep.id); }} className="group hover:bg-neutral-50 dark:hover:bg-neutral-800/30 transition-all cursor-pointer">
                     <td className="px-8 py-6">
                       <div className="flex items-center gap-4">
                         <input
@@ -1189,6 +1264,7 @@ export default function ReparacionesPage() {
                                     stock_actual: item.stock_actual - parseInt(qty) 
                                   }).eq('id', item.id);
                                   
+                                  fetchInsumos(selectedReparacion!.id);
                                   fetchHistory(selectedReparacion!.id);
                                   alert("¡Repuesto agregado y stock actualizado!");
                                 } catch (err: any) { alert(err.message); }
@@ -1206,8 +1282,31 @@ export default function ReparacionesPage() {
                         </select>
                       </div>
  
-                      {/* List of current insumos - Simplified to fetch on the fly if needed or just show in history */}
-                      <p className="text-[9px] text-neutral-400 italic">Los repuestos agregados se reflejan en el historial superior.</p>
+                      {/* List of current insumos */}
+                      <div className="space-y-2">
+                        {selectedReparacionInsumos.map(insumo => (
+                          <div key={insumo.id} className="flex justify-between items-center p-3 rounded-xl bg-neutral-50 dark:bg-neutral-800/50 border border-neutral-100 dark:border-neutral-700">
+                            <div className="flex items-center gap-3">
+                              <div className="w-8 h-8 rounded-lg bg-white dark:bg-neutral-800 flex items-center justify-center text-[10px] font-black">
+                                {insumo.cantidad}
+                              </div>
+                              <div>
+                                <p className="text-[10px] font-black uppercase tracking-tight">{insumo.inventario?.nombre}</p>
+                                <p className="text-[9px] text-neutral-400 font-bold">SKU: {insumo.inventario?.codigo || 'N/A'}</p>
+                              </div>
+                            </div>
+                            <button 
+                              onClick={() => handleRemoveInsumo(insumo.id, insumo.insumo_id, insumo.cantidad, insumo.inventario?.nombre)}
+                              className="p-2 rounded-lg text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 transition-all"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
+                        ))}
+                        {selectedReparacionInsumos.length === 0 && (
+                          <p className="text-[9px] text-neutral-400 italic">No hay repuestos registrados para esta reparación.</p>
+                        )}
+                      </div>
                     </div>
                   </div>
  
