@@ -828,21 +828,60 @@ export default function ReportesPage() {
                               {movimientos.filter(m => m.sesion_id === selectedSesionForDetails.id)
                                 .sort((a,b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
                                 .map((m, i) => (
-                                  <div key={i} className="flex justify-between items-center bg-neutral-50 dark:bg-neutral-800/50 p-4 rounded-2xl border border-neutral-100 dark:border-neutral-800">
-                                      <div className="flex gap-4 items-center">
-                                          <div className={`w-10 h-10 rounded-full flex items-center justify-center font-black shadow-inner ${m.tipo === 'ingreso' ? 'bg-emerald-100 text-emerald-600' : 'bg-rose-100 text-rose-600'}`}>
-                                              {m.tipo === 'ingreso' ? '+' : '-'}
+                                  <div 
+                                    key={i} 
+                                    onClick={() => setExpandedMovId(expandedMovId === m.id ? null : m.id)}
+                                    className={`p-4 rounded-2xl border transition-all cursor-pointer group ${
+                                        expandedMovId === m.id 
+                                            ? 'bg-white dark:bg-neutral-800 border-blue-500 shadow-lg ring-1 ring-blue-500/10' 
+                                            : 'bg-neutral-50 dark:bg-neutral-800/50 border-neutral-100 dark:border-neutral-800 hover:border-neutral-300 dark:hover:border-neutral-700'
+                                    }`}
+                                  >
+                                      <div className="flex justify-between items-center">
+                                          <div className="flex gap-4 items-center">
+                                              <div className={`w-10 h-10 rounded-full flex items-center justify-center font-black shadow-inner ${m.tipo === 'ingreso' ? 'bg-emerald-100 text-emerald-600' : 'bg-rose-100 text-rose-600'}`}>
+                                                  {m.tipo === 'ingreso' ? '+' : '-'}
+                                              </div>
+                                              <div>
+                                                  <p className="font-bold text-sm text-neutral-800 dark:text-neutral-200 group-hover:text-blue-500 transition-colors uppercase italic">{m.concepto}</p>
+                                                  <div className="flex items-center gap-2 mt-0.5">
+                                                      <p className="text-[10px] font-bold text-neutral-400 uppercase tracking-widest">{new Date(m.created_at).toLocaleTimeString()} • {m.metodo_pago} {m.es_traslado ? '• TRASLADO' : ''}</p>
+                                                      {m.caja_movimientos_detalles && m.caja_movimientos_detalles.length > 0 && (
+                                                          <span className="text-blue-500 bg-blue-50 dark:bg-blue-900/20 px-1.5 py-0.5 rounded text-[8px] font-black uppercase">
+                                                              {m.caja_movimientos_detalles.length} {m.caja_movimientos_detalles.length === 1 ? 'Ítem' : 'Ítems'}
+                                                          </span>
+                                                      )}
+                                                  </div>
+                                              </div>
                                           </div>
-                                          <div>
-                                              <p className="font-bold text-sm text-neutral-800 dark:text-neutral-200">{m.concepto}</p>
-                                              <p className="text-[10px] font-bold text-neutral-400 uppercase tracking-widest mt-0.5">{new Date(m.created_at).toLocaleTimeString()} • {m.metodo_pago} {m.es_traslado ? '• TRASLADO' : ''}</p>
+                                          <div className="flex items-center gap-4">
+                                              <div className="text-right">
+                                                  <p className={`font-black italic text-lg tracking-tighter ${m.tipo === 'ingreso' ? 'text-emerald-500' : 'text-rose-500'}`}>
+                                                      {m.tipo === 'ingreso' ? '+' : '-'}${m.monto.toFixed(2)}
+                                                  </p>
+                                              </div>
+                                              <div className={`transition-transform duration-300 ${expandedMovId === m.id ? 'rotate-90 text-blue-500' : 'text-neutral-300'}`}>
+                                                  <ChevronRight className="w-4 h-4" />
+                                              </div>
                                           </div>
                                       </div>
-                                      <div className="text-right">
-                                          <p className={`font-black italic text-lg ${m.tipo === 'ingreso' ? 'text-emerald-500' : 'text-rose-500'}`}>
-                                              {m.tipo === 'ingreso' ? '+' : '-'}${m.monto.toFixed(2)}
-                                          </p>
-                                      </div>
+
+                                      {/* Expandable Details Area for Turno Modal */}
+                                      {expandedMovId === m.id && m.caja_movimientos_detalles && m.caja_movimientos_detalles.length > 0 && (
+                                          <div className="mt-4 pt-4 border-t border-dashed border-neutral-100 dark:border-neutral-700 animate-in slide-in-from-top-2 duration-300">
+                                              <div className="grid grid-cols-1 gap-2">
+                                                  {m.caja_movimientos_detalles.map((det, idx) => (
+                                                      <div key={idx} className="flex justify-between items-center bg-white dark:bg-neutral-900/50 p-3 rounded-xl border border-neutral-100/50 dark:border-neutral-800/50">
+                                                          <div className="min-w-0 pr-4">
+                                                              <p className="text-[10px] font-bold text-neutral-600 dark:text-neutral-400 uppercase truncate">{det.descripcion}</p>
+                                                              <p className="text-[8px] font-black text-neutral-400 mt-0.5">{det.cantidad} x ${Number(det.precio_unitario).toFixed(2)}</p>
+                                                          </div>
+                                                          <span className="text-[10px] font-black text-neutral-900 dark:text-white shrink-0">${Number(det.subtotal).toFixed(2)}</span>
+                                                      </div>
+                                                  ))}
+                                              </div>
+                                          </div>
+                                      )}
                                   </div>
                               ))}
                           </div>
