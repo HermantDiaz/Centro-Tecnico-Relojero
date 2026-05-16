@@ -3,8 +3,11 @@
 import { useEffect, useState, useMemo } from "react";
 import { useAuth } from "@/components/AuthProvider";
 import { supabase } from "@/lib/supabase";
-import { PieChart, TrendingUp, History, CalendarDays, Building2, CheckCircle2, Search, X, Calendar, ChevronLeft, ChevronRight, ArrowUpRight, ArrowDownRight, Info } from "lucide-react";
+import { PieChart, TrendingUp, History, CalendarDays, Building2, CheckCircle2, Search, X, Calendar, ChevronLeft, ChevronRight, ArrowUpRight, ArrowDownRight, Info, Plus, Trash2, Save, AlertCircle } from "lucide-react";
 import { useRouter } from "next/navigation";
+import { useCaja } from "@/hooks/useCaja";
+
+const CATEGORIAS_GASTO = ["Compras e Inventario", "Operaciones Fijas", "Planilla y Comisiones", "Marketing y Publicidad", "Servicios Básicos", "Impuestos y Finanzas", "Otros"];
 
 interface CajaSesion {
   id: string;
@@ -37,16 +40,25 @@ interface Movimiento {
     concepto?: string;
     sesion_id?: string;
     metodo_pago?: string;
+    categoria?: string;
     subcategoria_id?: string;
     caja_movimientos_detalles?: MovimientoDetalle[];
 }
 
 export default function ReportesPage() {
   const { rol, user, loading: authLoading } = useAuth();
+  const { justifyShortage } = useCaja();
   const router = useRouter();
   
   const [sesiones, setSesiones] = useState<CajaSesion[]>([]);
   const [movimientos, setMovimientos] = useState<Movimiento[]>([]);
+  const [activeTab, setActiveTab] = useState<'dashboard' | 'egresos'>('dashboard');
+
+  // Justificación de Faltantes
+  const [isJustifyModalOpen, setIsJustifyModalOpen] = useState(false);
+  const [justifyExpenses, setJustifyExpenses] = useState<Array<{monto: string, concepto: string, categoria: string, subcategoria_id?: string}>>([]);
+  const [isSavingJustify, setIsSavingJustify] = useState(false);
+  const [subcategorias, setSubcategorias] = useState<{id: string, nombre: string, categoria_padre: string}[]>([]);
   
   // Balance General States
   const [saldosCobrar, setSaldosCobrar] = useState(0);
@@ -65,19 +77,20 @@ export default function ReportesPage() {
   // Drill-down state
   const [drillDownItem, setDrillDownItem] = useState<{ type: 'concept' | 'subcategory', value: string, name: string } | null>(null);
   const [expandedMovId, setExpandedMovId] = useState<string | null>(null);
+  const [selectedSnapshotData, setSelectedSnapshotData] = useState<{label: string, ingreso: number, egreso: number} | null>(null);
 
   // Turno modal state
   const [selectedSesionForDetails, setSelectedSesionForDetails] = useState<CajaSesion | null>(null);
 
   // Lock body scroll when drawer/modal is open
   useEffect(() => {
-    if (drillDownItem || selectedSesionForDetails) {
+    if (drillDownItem || selectedSesionForDetails || selectedSnapshotData) {
       document.body.style.overflow = 'hidden';
     } else {
       document.body.style.overflow = 'unset';
     }
     return () => { document.body.style.overflow = 'unset'; };
-  }, [drillDownItem, selectedSesionForDetails]);
+  }, [drillDownItem, selectedSesionForDetails, selectedSnapshotData]);
 
   useEffect(() => {
     if (user && rol === 'admin') {
@@ -135,6 +148,10 @@ export default function ReportesPage() {
                 if (reps) {
                     setSaldosCobrar(reps.reduce((acc, r) => acc + Number(r.saldo_pendiente), 0));
                 }
+
+                // Fetch Subcategories
+                const { data: scs } = await supabase.from('caja_subcategorias').select('id, nombre, categoria_padre').order('nombre');
+                if (scs) setSubcategorias(scs);
             } catch (e) {
                 console.error(e);
             } finally {
@@ -145,6 +162,63 @@ export default function ReportesPage() {
         fetchReportes();
     }
   }, [user, rol]);
+
+  const handleSaveJustify = async () => {
+      if (!selectedSesionForDetails) return;
+      setIsSavingJustify(true);
+      try {
+          const validExpenses = justifyExpenses.filter(e => Number(e.monto) > 0 && e.concepto.trim());
+          if (validExpenses.length === 0) {
+              alert("Debes ingresar al menos un gasto válido.");
+              return;
+          }
+
+          const totalJustificado = validExpenses.reduce((acc, e) => acc + Number(e.monto), 0);
+          if (Math.abs(totalJustificado - Math.abs(Number(selectedSesionForDetails.diferencia))) > 0.01) {
+              const confirm = window.confirm(`El total justificado ($${totalJustificado.toFixed(2)}) no coincide exactamente con el faltante ($${Math.abs(Number(selectedSesionForDetails.diferencia)).toFixed(2)}).\n\n¿Deseas proceder de todas formas? El balance del turno se ajustará según lo ingresado.`);
+              if (!confirm) return;
+          }
+
+          await justifyShortage(selectedSesionForDetails.id, validExpenses as any);
+          
+          setIsJustifyModalOpen(false);
+          setSelectedSesionForDetails(null);
+          // Refresh data
+          window.location.reload(); // Simple refresh to avoid complex state sync
+      } catch (e: any) {
+          alert("Error al justificar: " + e.message);
+      } finally {
+          setIsSavingJustify(false);
+      }
+  };
+
+  const movimientosValidos = useMemo(() => {
+      const movs = [...movimientos].sort((a,b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
+      const toRemove = new Set<string>();
+      
+      const anulaciones = movs.filter(m => m.concepto?.startsWith('ANULACIÓN: '));
+      
+      anulaciones.forEach(anul => {
+          const originalConcepto = anul.concepto!.replace('ANULACIÓN: ', '');
+          const originalTipo = anul.tipo === 'ingreso' ? 'egreso' : 'ingreso';
+          const originalMonto = anul.monto;
+          
+          const target = movs.find(m => 
+              m.tipo === originalTipo && 
+              m.monto === originalMonto && 
+              m.concepto === originalConcepto && 
+              new Date(m.created_at) <= new Date(anul.created_at) &&
+              !toRemove.has(m.id)
+          );
+          
+          if (target) {
+              toRemove.add(target.id);
+              toRemove.add(anul.id);
+          }
+      });
+      
+      return movs.filter(m => !toRemove.has(m.id));
+  }, [movimientos]);
 
   const globalStats = useMemo(() => {
       const statsIngresos = new Map<string, number>();
@@ -159,7 +233,7 @@ export default function ReportesPage() {
       if (timeFilter === '30d') limitDate = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 29);
       if (timeFilter === '12m') limitDate = new Date(now.getFullYear(), now.getMonth() - 11, 1);
 
-      movimientos.forEach(m => {
+      movimientosValidos.forEach(m => {
           if (m.es_traslado) return;
           const mDate = new Date(m.created_at);
           
@@ -201,7 +275,7 @@ export default function ReportesPage() {
       })).sort(descOrder).slice(0, 5);
 
       return { ingresos, egresos, margen: ingresos - egresos, topIngresos, topEgresos, topSubcategorias };
-  }, [movimientos, timeFilter, selectedMonth, selectedYear, subcategoriasMap]);
+  }, [movimientosValidos, timeFilter, selectedMonth, selectedYear, subcategoriasMap]);
 
   const chartData = useMemo(() => {
     const dataMap = new Map<string, {ingreso: number, egreso: number}>();
@@ -244,7 +318,7 @@ export default function ReportesPage() {
     }
 
     // 2. Sum up movements
-    movimientos.forEach(m => {
+    movimientosValidos.forEach(m => {
         if (m.es_traslado) return;
         const md = new Date(m.created_at);
         let key = '';
@@ -272,7 +346,7 @@ export default function ReportesPage() {
     });
 
     return Array.from(dataMap.entries()).map(([label, val]) => ({ label, ...val }));
-  }, [movimientos, timeFilter]);
+  }, [movimientosValidos, timeFilter, selectedMonth, selectedYear]);
 
   const maxChartValue = useMemo(() => {
       let max = 0;
@@ -302,6 +376,31 @@ export default function ReportesPage() {
           <h1 className="text-5xl font-black text-neutral-900 dark:text-white tracking-tighter uppercase italic">Analítica Corporativa</h1>
         </div>
       </div>
+
+      {/* Tabs Navigation PRO */}
+      <div className="flex items-center gap-1.5 p-2 bg-neutral-100 dark:bg-neutral-900 rounded-[2rem] w-fit border border-neutral-200 dark:border-neutral-800">
+        {[
+            { id: 'dashboard', label: 'Visión Global', icon: PieChart },
+            { id: 'egresos', label: 'Explorador de Egresos', icon: Search }
+        ].map((tab) => (
+            <button
+                key={tab.id}
+                onClick={() => setActiveTab(tab.id as any)}
+                className={`flex items-center gap-2.5 px-7 py-3 rounded-2xl text-[10px] font-black uppercase tracking-widest transition-all ${
+                    activeTab === tab.id 
+                    ? "bg-white dark:bg-neutral-800 text-neutral-900 dark:text-white shadow-lg scale-[1.03]" 
+                    : "text-neutral-500 hover:text-neutral-900 dark:hover:text-neutral-200"
+                }`}
+            >
+                <tab.icon className="w-3.5 h-3.5" />
+                {tab.label}
+            </button>
+        ))}
+      </div>
+
+      {activeTab === 'dashboard' && (
+        <div className="space-y-8 animate-in fade-in">
+
 
       {/* Corporate Dashboard Stats (Balance General) */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
@@ -419,10 +518,17 @@ export default function ReportesPage() {
               </div>
           </div>
 
-          <div className="bg-white dark:bg-neutral-900 rounded-[3rem] border border-neutral-100 dark:border-neutral-800 p-8 shadow-2xl">
-              <h4 className="text-xl font-black text-neutral-900 dark:text-white uppercase tracking-tighter italic mb-1">Fugas por Subcategoría</h4>
-              <p className="text-[10px] font-black text-neutral-400 uppercase tracking-widest mb-6">Frecuencia y volumen</p>
-              <div className="space-y-4">
+          <div className="bg-white dark:bg-neutral-900 rounded-[3rem] border border-neutral-100 dark:border-neutral-800 p-8 shadow-2xl flex flex-col">
+              <div className="flex justify-between items-start mb-6">
+                  <div>
+                      <h4 className="text-xl font-black text-neutral-900 dark:text-white uppercase tracking-tighter italic mb-1">Fugas por Subcategoría</h4>
+                      <p className="text-[10px] font-black text-neutral-400 uppercase tracking-widest">Frecuencia y volumen</p>
+                  </div>
+                  <button onClick={() => setActiveTab('egresos')} className="text-[9px] font-black bg-neutral-100 dark:bg-neutral-800 text-neutral-500 hover:text-white hover:bg-black px-3 py-2 rounded-xl transition-all uppercase tracking-widest shrink-0 shadow-sm border border-neutral-200 dark:border-neutral-700">
+                      Explorar
+                  </button>
+              </div>
+              <div className="space-y-4 flex-1">
                   {globalStats.topSubcategorias.map((sub, i) => (
                       <button 
                         key={i} 
@@ -518,6 +624,7 @@ export default function ReportesPage() {
                       <div key={i} className="relative flex-1 group flex flex-col justify-end h-full mt-auto cursor-pointer min-w-[36px] sm:min-w-[48px] max-w-16 md:max-w-32"
                            onMouseEnter={() => setHoverData(data)}
                            onMouseLeave={() => setHoverData(null)}
+                           onClick={() => setSelectedSnapshotData(data)}
                       >
                       {/* Egresos Bar (achter) */}
                       <div 
@@ -667,11 +774,26 @@ export default function ReportesPage() {
               </table>
           </div>
       </div>
+      </div>
+      )}
+
+      {activeTab === 'egresos' && (
+          <EgresosExplorerTab 
+            movimientos={movimientosValidos} 
+            subcategoriasMap={subcategoriasMap} 
+            subcategorias={subcategorias} 
+            selectedMonth={selectedMonth}
+            selectedYear={selectedYear}
+            setSelectedMonth={setSelectedMonth}
+            setSelectedYear={setSelectedYear}
+          />
+      )}
+
 
       {/* Drawer Desglose Auditado (Drill-down) */}
       {drillDownItem && (() => {
           // Calculate stats for selected item
-          const currentMonthMovs = movimientos.filter(m => {
+          const currentMonthMovs = movimientosValidos.filter(m => {
               if (m.es_traslado) return false;
               const d = new Date(m.created_at);
               const isPeriodMatch = d.getMonth() === selectedMonth && d.getFullYear() === selectedYear;
@@ -804,6 +926,86 @@ export default function ReportesPage() {
           );
       })()}
 
+      {/* Snapshot Modal & Print Template */}
+      {selectedSnapshotData && (
+          <>
+          <style type="text/css" media="print">
+              {`
+                  body * { visibility: hidden; }
+                  #snapshot-print-area, #snapshot-print-area * { visibility: visible; }
+                  #snapshot-print-area { position: absolute; left: 0; top: 0; width: 100%; margin: 0; padding: 20px; box-shadow: none; border-radius: 0; background: white; color: black; }
+                  .print-hide { display: none !important; }
+                  .print-show { display: block !important; }
+              `}
+          </style>
+          <div className="fixed inset-0 z-[200] flex items-center justify-center p-4 print:p-0">
+              <div className="absolute inset-0 bg-black/60 backdrop-blur-sm print-hide" onClick={() => setSelectedSnapshotData(null)}></div>
+              
+              <div id="snapshot-print-area" className="relative w-full max-w-md bg-white dark:bg-neutral-900 rounded-[2.5rem] shadow-2xl overflow-hidden animate-in zoom-in-95 duration-300">
+                  {/* Header Impresión - visible solo en impresión */}
+                  <div className="hidden print-show text-center border-b-2 border-black pb-4 mb-6 pt-4">
+                      <h2 className="text-2xl font-black uppercase tracking-tighter">CENTRO TÉCNICO RELOJERO</h2>
+                      <p className="text-xs font-bold uppercase tracking-widest mt-1">Balance Diario Rápido</p>
+                  </div>
+
+                  <div className="p-8 print:p-0">
+                      <div className="flex justify-between items-start mb-8 print-hide">
+                          <div>
+                              <p className="text-[10px] font-black uppercase tracking-widest text-blue-500 mb-1">Corte Diario Rápido</p>
+                              <h3 className="text-2xl font-black text-neutral-900 dark:text-white uppercase italic tracking-tighter">
+                                  {selectedSnapshotData.label}
+                              </h3>
+                          </div>
+                          <button onClick={() => setSelectedSnapshotData(null)} className="p-2 bg-neutral-100 dark:bg-neutral-800 rounded-full text-neutral-500 hover:text-black dark:hover:text-white transition-colors">
+                              <X className="w-5 h-5" />
+                          </button>
+                      </div>
+
+                      {/* Título alternativo en impresión */}
+                      <div className="hidden print-show text-center mb-8">
+                          <p className="text-sm font-black uppercase tracking-widest text-neutral-500 mb-1">Fecha del Corte</p>
+                          <h3 className="text-xl font-black text-black uppercase italic tracking-tighter">
+                              {selectedSnapshotData.label}
+                          </h3>
+                      </div>
+
+                      <div className="space-y-6">
+                          <div className="p-5 bg-emerald-50 dark:bg-emerald-900/20 border border-emerald-100 dark:border-emerald-900/30 rounded-2xl print:bg-transparent print:border-b print:border-black print:rounded-none">
+                              <p className="text-[10px] font-black uppercase tracking-widest text-emerald-600 mb-1">Total Ingresos</p>
+                              <p className="text-3xl font-black italic text-emerald-700 dark:text-emerald-400">${selectedSnapshotData.ingreso.toFixed(2)}</p>
+                          </div>
+                          
+                          <div className="p-5 bg-rose-50 dark:bg-rose-900/20 border border-rose-100 dark:border-rose-900/30 rounded-2xl print:bg-transparent print:border-b print:border-black print:rounded-none">
+                              <p className="text-[10px] font-black uppercase tracking-widest text-rose-600 mb-1">Total Egresos</p>
+                              <p className="text-3xl font-black italic text-rose-700 dark:text-rose-400">${selectedSnapshotData.egreso.toFixed(2)}</p>
+                          </div>
+
+                          <div className="p-6 bg-black dark:bg-neutral-800 rounded-2xl text-white print:bg-transparent print:text-black print:border-4 print:border-black print:rounded-none mt-8">
+                              <p className="text-[10px] font-black uppercase tracking-widest text-neutral-400 mb-2">Margen Neto Operativo</p>
+                              <p className="text-4xl font-black italic tracking-tighter">${(selectedSnapshotData.ingreso - selectedSnapshotData.egreso).toFixed(2)}</p>
+                          </div>
+                      </div>
+
+                      <div className="mt-8 pt-8 border-t border-neutral-100 dark:border-neutral-800 flex flex-col gap-3 print-hide">
+                          <button onClick={() => window.print()} className="w-full py-4 bg-blue-600 hover:bg-blue-700 text-white font-black text-[10px] uppercase tracking-widest rounded-2xl shadow-xl shadow-blue-500/20 transition-all flex justify-center items-center gap-2">
+                              Exportar a PDF / Imprimir
+                          </button>
+                          <button onClick={() => setSelectedSnapshotData(null)} className="w-full py-4 bg-transparent text-neutral-500 hover:text-black dark:hover:text-white font-black text-[10px] uppercase tracking-widest rounded-2xl transition-all">
+                              Cerrar
+                          </button>
+                      </div>
+                      
+                      {/* Footer Impresión */}
+                      <div className="hidden print-show mt-16 text-center text-xs text-black border-t-2 border-black pt-4">
+                          <p className="font-bold uppercase">Reporte Generado Automáticamente por CTR Inteligencia</p>
+                          <p className="mt-8">Firma de Auditor: _________________________</p>
+                      </div>
+                  </div>
+              </div>
+          </div>
+          </>
+      )}
+
       {/* Modal Desglose de Turno */}
       {selectedSesionForDetails && (
           <div onClick={() => setSelectedSesionForDetails(null)} className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[80] flex items-center justify-center p-4">
@@ -815,9 +1017,22 @@ export default function ReportesPage() {
                               Sesión del {new Date(selectedSesionForDetails.fecha_apertura).toLocaleDateString()}
                           </p>
                       </div>
-                      <button onClick={() => setSelectedSesionForDetails(null)} className="p-2 bg-neutral-100 dark:bg-neutral-800 text-neutral-500 rounded-full hover:bg-black hover:text-white transition-all">
-                          <X className="w-5 h-5" />
-                      </button>
+                      <div className="flex items-center gap-3">
+                          {selectedSesionForDetails.estado === 'cerrada' && Number(selectedSesionForDetails.diferencia) < 0 && (
+                              <button 
+                                onClick={() => {
+                                    setJustifyExpenses([{ monto: Math.abs(Number(selectedSesionForDetails.diferencia)).toString(), concepto: "", categoria: "Otros" }]);
+                                    setIsJustifyModalOpen(true);
+                                }}
+                                className="flex items-center gap-2 px-4 py-2 bg-amber-100 text-amber-700 rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-amber-200 transition-all"
+                              >
+                                  <AlertCircle className="w-4 h-4" /> Justificar Faltante
+                              </button>
+                          )}
+                          <button onClick={() => setSelectedSesionForDetails(null)} className="p-2 bg-neutral-100 dark:bg-neutral-800 text-neutral-500 rounded-full hover:bg-black hover:text-white transition-all">
+                              <X className="w-5 h-5" />
+                          </button>
+                      </div>
                   </div>
 
                   <div className="flex-1 overflow-y-auto pr-2 pb-4">
@@ -891,6 +1106,397 @@ export default function ReportesPage() {
           </div>
       )}
 
+      {/* Justify Shortage Modal */}
+      {selectedSesionForDetails && (
+          <JustifyShortageModal 
+            isOpen={isJustifyModalOpen}
+            onClose={() => setIsJustifyModalOpen(false)}
+            onSave={handleSaveJustify}
+            expenses={justifyExpenses}
+            setExpenses={setJustifyExpenses}
+            isSaving={isSavingJustify}
+            subcategorias={subcategorias}
+            totalFaltante={Math.abs(Number(selectedSesionForDetails.diferencia))}
+          />
+      )}
+
     </div>
   );
 }
+
+// Separate component for the Justification Modal for cleaner code
+function JustifyShortageModal({ 
+    isOpen, 
+    onClose, 
+    onSave, 
+    expenses, 
+    setExpenses, 
+    isSaving,
+    subcategorias,
+    totalFaltante 
+}: any) {
+    if (!isOpen) return null;
+
+    const currentTotal = expenses.reduce((acc: number, e: any) => acc + (Number(e.monto) || 0), 0);
+    const difference = totalFaltante - currentTotal;
+
+    const addExpense = () => {
+        setExpenses([...expenses, { monto: "", concepto: "", categoria: "Otros" }]);
+    };
+
+    const removeExpense = (index: number) => {
+        setExpenses(expenses.filter((_: any, i: number) => i !== index));
+    };
+
+    const updateExpense = (index: number, updates: any) => {
+        setExpenses(expenses.map((e: any, i: number) => i === index ? { ...e, ...updates } : e));
+    };
+
+    return (
+        <div className="fixed inset-0 bg-black/80 backdrop-blur-md z-[100] flex items-center justify-center p-4">
+            <div className="bg-white dark:bg-neutral-900 w-full max-w-2xl rounded-[2.5rem] p-10 shadow-2xl flex flex-col max-h-[90vh] animate-in zoom-in-95 duration-300">
+                <div className="flex justify-between items-start mb-8">
+                    <div>
+                        <h3 className="text-3xl font-black text-neutral-900 dark:text-white uppercase italic tracking-tighter leading-tight">Justificar Faltante</h3>
+                        <p className="text-[10px] font-black text-neutral-400 uppercase tracking-widest mt-2">
+                            El monto original del faltante es de <span className="text-rose-500">${totalFaltante.toFixed(2)}</span>
+                        </p>
+                    </div>
+                    <button onClick={onClose} className="p-3 bg-neutral-100 dark:bg-neutral-800 text-neutral-500 rounded-full hover:rotate-90 transition-all">
+                        <X className="w-5 h-5" />
+                    </button>
+                </div>
+
+                <div className="flex-1 overflow-y-auto pr-2 space-y-6 mb-8">
+                    {expenses.map((exp: any, index: number) => (
+                        <div key={index} className="p-6 bg-neutral-50 dark:bg-neutral-800/50 rounded-3xl border border-neutral-100 dark:border-neutral-800 relative group animate-in slide-in-from-bottom-2">
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                <div className="space-y-2">
+                                    <label className="text-[9px] font-black uppercase text-neutral-400 tracking-widest ml-1">Monto ($)</label>
+                                    <input 
+                                        type="number"
+                                        value={exp.monto}
+                                        onChange={(e) => updateExpense(index, { monto: e.target.value })}
+                                        className="w-full bg-white dark:bg-neutral-900 border border-neutral-200 dark:border-neutral-800 p-4 rounded-2xl text-sm font-bold focus:ring-2 focus:ring-amber-500 outline-none transition-all"
+                                        placeholder="0.00"
+                                    />
+                                </div>
+                                <div className="space-y-2">
+                                    <label className="text-[9px] font-black uppercase text-neutral-400 tracking-widest ml-1">Categoría</label>
+                                    <select 
+                                        value={exp.categoria}
+                                        onChange={(e) => updateExpense(index, { categoria: e.target.value, subcategoria_id: undefined })}
+                                        className="w-full bg-white dark:bg-neutral-900 border border-neutral-200 dark:border-neutral-800 p-4 rounded-2xl text-sm font-bold focus:ring-2 focus:ring-amber-500 outline-none transition-all"
+                                    >
+                                        {CATEGORIAS_GASTO.map(c => <option key={c} value={c}>{c}</option>)}
+                                    </select>
+                                </div>
+                                <div className="md:col-span-2 space-y-2">
+                                    <label className="text-[9px] font-black uppercase text-neutral-400 tracking-widest ml-1">Concepto / Motivo</label>
+                                    <input 
+                                        type="text"
+                                        value={exp.concepto}
+                                        onChange={(e) => updateExpense(index, { concepto: e.target.value })}
+                                        className="w-full bg-white dark:bg-neutral-900 border border-neutral-200 dark:border-neutral-800 p-4 rounded-2xl text-sm font-bold focus:ring-2 focus:ring-amber-500 outline-none transition-all"
+                                        placeholder="Ej: Pago de almuerzos, Compra de insumos urgentes..."
+                                    />
+                                </div>
+                                <div className="md:col-span-2 space-y-2">
+                                    <label className="text-[9px] font-black uppercase text-neutral-400 tracking-widest ml-1">Subcategoría (Opcional)</label>
+                                    <select 
+                                        value={exp.subcategoria_id || ""}
+                                        onChange={(e) => updateExpense(index, { subcategoria_id: e.target.value })}
+                                        className="w-full bg-white dark:bg-neutral-900 border border-neutral-200 dark:border-neutral-800 p-4 rounded-2xl text-sm font-bold focus:ring-2 focus:ring-amber-500 outline-none transition-all"
+                                    >
+                                        <option value="">Ninguna</option>
+                                        {subcategorias.filter((s:any) => s.categoria_padre === exp.categoria).map((s:any) => (
+                                            <option key={s.id} value={s.id}>{s.nombre}</option>
+                                        ))}
+                                    </select>
+                                </div>
+                            </div>
+                            {expenses.length > 1 && (
+                                <button 
+                                    onClick={() => removeExpense(index)}
+                                    className="absolute -top-3 -right-3 p-2 bg-rose-500 text-white rounded-full shadow-lg hover:scale-110 transition-all"
+                                >
+                                    <Trash2 className="w-3.5 h-3.5" />
+                                </button>
+                            )}
+                        </div>
+                    ))}
+                    
+                    <button 
+                        onClick={addExpense}
+                        className="w-full py-4 border-2 border-dashed border-neutral-200 dark:border-neutral-800 rounded-3xl text-[10px] font-black uppercase tracking-widest text-neutral-400 hover:border-neutral-400 hover:text-neutral-600 transition-all flex items-center justify-center gap-2"
+                    >
+                        <Plus className="w-4 h-4" /> Añadir otro gasto
+                    </button>
+                </div>
+
+                <div className="pt-8 border-t border-neutral-100 dark:border-neutral-800 flex flex-col md:flex-row items-center justify-between gap-6">
+                    <div className="text-center md:text-left">
+                        <p className="text-[10px] font-black text-neutral-400 uppercase tracking-widest">Balance de Justificación</p>
+                        <p className={`text-xl font-black italic tracking-tighter ${Math.abs(difference) < 0.01 ? 'text-emerald-500' : 'text-amber-500'}`}>
+                            {difference === 0 ? '¡Cuadrado Exacto!' : difference > 0 ? `Restan $${difference.toFixed(2)} por asignar` : `Exceso de $${Math.abs(difference).toFixed(2)}`}
+                        </p>
+                    </div>
+                    <div className="flex gap-4 w-full md:w-auto">
+                        <button onClick={onClose} className="flex-1 md:flex-none px-8 py-4 text-[10px] font-black uppercase tracking-widest text-neutral-500 hover:text-black transition-all">
+                            Cancelar
+                        </button>
+                        <button 
+                            disabled={isSaving || expenses.some((e:any) => !e.monto || !e.concepto)}
+                            onClick={onSave}
+                            className="flex-1 md:flex-none px-10 py-4 bg-neutral-900 dark:bg-white text-white dark:text-black rounded-2xl font-black text-[10px] uppercase tracking-widest shadow-xl hover:scale-105 active:scale-95 disabled:opacity-50 disabled:scale-100 transition-all flex items-center justify-center gap-2"
+                        >
+                            {isSaving ? (
+                                <div className="w-4 h-4 border-2 border-white dark:border-black border-t-transparent rounded-full animate-spin"></div>
+                            ) : (
+                                <Save className="w-4 h-4" />
+                            )}
+                            Guardar Cambios
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    );
+}
+
+function EgresosExplorerTab({ 
+    movimientos, 
+    subcategoriasMap, 
+    subcategorias, 
+    selectedMonth, 
+    selectedYear, 
+    setSelectedMonth, 
+    setSelectedYear 
+}: any) {
+    const [expandedCategory, setExpandedCategory] = useState<string | null>(null);
+    const [expandedSubcategory, setExpandedSubcategory] = useState<string | null>(null);
+    const [searchQuery, setSearchQuery] = useState("");
+
+    // 1. Filtrar Movimientos del Mes
+    const egresosDelMes = useMemo(() => {
+        return movimientos.filter((m: any) => {
+            if (m.tipo !== 'egreso' || m.es_traslado) return false;
+            const d = new Date(m.created_at);
+            return d.getMonth() === selectedMonth && d.getFullYear() === selectedYear;
+        });
+    }, [movimientos, selectedMonth, selectedYear]);
+
+    // 2. Agrupar por Categoría -> Subcategoría
+    const groupedData = useMemo(() => {
+        const groups: Record<string, { total: number, subcategorias: Record<string, { total: number, movimientos: any[] }> }> = {};
+        
+        let filteredEgresos = egresosDelMes;
+        if (searchQuery) {
+            const q = searchQuery.toLowerCase();
+            filteredEgresos = filteredEgresos.filter((m:any) => 
+                (m.concepto || '').toLowerCase().includes(q) || 
+                (m.categoria || '').toLowerCase().includes(q) ||
+                (subcategoriasMap.get(m.subcategoria_id) || '').toLowerCase().includes(q)
+            );
+        }
+
+        filteredEgresos.forEach((m: any) => {
+            const cat = m.categoria || "Sin Categoría";
+            const sub = subcategoriasMap.get(m.subcategoria_id) || "General";
+            const monto = Number(m.monto);
+
+            if (!groups[cat]) groups[cat] = { total: 0, subcategorias: {} };
+            groups[cat].total += monto;
+
+            if (!groups[cat].subcategorias[sub]) groups[cat].subcategorias[sub] = { total: 0, movimientos: [] };
+            groups[cat].subcategorias[sub].total += monto;
+            groups[cat].subcategorias[sub].movimientos.push(m);
+        });
+
+        // Convertir a arrays para fácil mapeo
+        const sortedCategories = Object.entries(groups)
+            .map(([name, data]) => ({
+                name,
+                total: data.total,
+                subcategorias: Object.entries(data.subcategorias)
+                    .map(([subName, subData]) => ({
+                        name: subName,
+                        total: subData.total,
+                        movimientos: subData.movimientos.sort((a:any,b:any) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
+                    }))
+                    .sort((a, b) => b.total - a.total)
+            }))
+            .sort((a, b) => b.total - a.total);
+
+        return sortedCategories;
+    }, [egresosDelMes, subcategoriasMap, searchQuery]);
+
+    const totalEgresosMes = groupedData.reduce((acc, cat) => acc + cat.total, 0);
+
+    return (
+        <div className="space-y-8 animate-in fade-in">
+            {/* Header / Selector de Mes */}
+            <div className="flex flex-col lg:flex-row justify-between items-start lg:items-end gap-6 bg-white dark:bg-neutral-900 p-8 rounded-[3rem] shadow-xl border border-neutral-100 dark:border-neutral-800">
+                <div>
+                    <h2 className="text-3xl font-black italic uppercase tracking-tighter">Auditoría de Egresos</h2>
+                    <p className="text-neutral-400 text-sm mt-1">Análisis profundo de gastos y salidas de dinero.</p>
+                </div>
+                
+                <div className="flex flex-col sm:flex-row items-center gap-6 w-full lg:w-auto">
+                    <div className="relative w-full sm:w-auto">
+                        <Search className="w-4 h-4 absolute left-4 top-1/2 -translate-y-1/2 text-neutral-400" />
+                        <input 
+                            type="text" 
+                            placeholder="Buscar concepto..."
+                            value={searchQuery}
+                            onChange={e => setSearchQuery(e.target.value)}
+                            className="pl-11 pr-4 py-3 bg-neutral-100 dark:bg-neutral-800 border-none rounded-2xl text-sm font-bold w-full sm:w-64 focus:ring-2 focus:ring-black dark:focus:ring-white outline-none"
+                        />
+                    </div>
+                    
+                    {/* Month/Year Selector from Dashboard */}
+                    <div className="flex items-center justify-between w-full sm:w-auto gap-4 bg-neutral-100 dark:bg-neutral-800 p-2 rounded-3xl border border-neutral-200 dark:border-neutral-700">
+                        <button 
+                            onClick={() => {
+                                if (selectedMonth === 0) {
+                                    setSelectedMonth(11);
+                                    setSelectedYear(selectedYear - 1);
+                                } else {
+                                    setSelectedMonth(selectedMonth - 1);
+                                }
+                            }}
+                            className="p-3 rounded-2xl bg-white dark:bg-neutral-900 shadow-sm hover:scale-105 transition-transform"
+                        >
+                            <ChevronLeft className="w-4 h-4" />
+                        </button>
+                        <div className="text-center min-w-[120px]">
+                            <p className="text-sm font-black uppercase italic tracking-tighter text-neutral-900 dark:text-white">
+                                {new Date(selectedYear, selectedMonth).toLocaleDateString('es-ES', { month: 'long' })}
+                            </p>
+                            <p className="text-[9px] font-black text-neutral-400 uppercase tracking-widest">{selectedYear}</p>
+                        </div>
+                        <button 
+                            onClick={() => {
+                                if (selectedMonth === 11) {
+                                    setSelectedMonth(0);
+                                    setSelectedYear(selectedYear + 1);
+                                } else {
+                                    setSelectedMonth(selectedMonth + 1);
+                                }
+                            }}
+                            className="p-3 rounded-2xl bg-white dark:bg-neutral-900 shadow-sm hover:scale-105 transition-transform"
+                        >
+                            <ChevronRight className="w-4 h-4" />
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+
+            {/* Hierarchical Table */}
+            <div className="bg-white dark:bg-neutral-900 rounded-[3rem] shadow-2xl border border-neutral-100 dark:border-neutral-800 overflow-hidden">
+                <div className="p-8 border-b border-neutral-100 dark:border-neutral-800 flex justify-between items-center bg-neutral-50 dark:bg-neutral-800/50">
+                    <p className="text-xs font-black text-neutral-400 uppercase tracking-widest">Total del Mes</p>
+                    <h3 className="text-3xl font-black text-rose-500 italic tracking-tighter">${totalEgresosMes.toFixed(2)}</h3>
+                </div>
+
+                <div className="p-4 sm:p-8">
+                    {groupedData.length === 0 ? (
+                        <div className="text-center py-20 text-neutral-400 italic">No se encontraron egresos para este mes.</div>
+                    ) : (
+                        <div className="space-y-4">
+                            {groupedData.map((cat, i) => {
+                                const isCatExpanded = expandedCategory === cat.name;
+                                const percentage = totalEgresosMes > 0 ? (cat.total / totalEgresosMes) * 100 : 0;
+                                
+                                return (
+                                    <div key={i} className="rounded-3xl border border-neutral-100 dark:border-neutral-800 overflow-hidden transition-all duration-300 bg-white dark:bg-neutral-900">
+                                        {/* Categoria Row */}
+                                        <div 
+                                            onClick={() => setExpandedCategory(isCatExpanded ? null : cat.name)}
+                                            className={`p-6 flex flex-col sm:flex-row justify-between items-start sm:items-center cursor-pointer hover:bg-neutral-50 dark:hover:bg-neutral-800/50 transition-colors ${isCatExpanded ? 'bg-neutral-50 dark:bg-neutral-800/50 border-b border-neutral-100 dark:border-neutral-800' : ''}`}
+                                        >
+                                            <div className="flex-1 w-full sm:w-auto">
+                                                <div className="flex items-center gap-3 mb-2">
+                                                    <div className={`transition-transform duration-300 ${isCatExpanded ? 'rotate-90 text-blue-500' : 'text-neutral-400'}`}>
+                                                        <ChevronRight className="w-5 h-5" />
+                                                    </div>
+                                                    <h4 className="text-lg font-black uppercase tracking-tighter">{cat.name}</h4>
+                                                    <span className="text-[10px] font-black px-2 py-1 bg-neutral-100 dark:bg-neutral-800 rounded-lg text-neutral-500">{cat.subcategorias.length} Subcats</span>
+                                                </div>
+                                                <div className="w-full bg-neutral-100 dark:bg-neutral-800 h-1.5 rounded-full overflow-hidden mt-3 max-w-md">
+                                                    <div className="bg-rose-500 h-full rounded-full transition-all duration-1000" style={{ width: `${percentage}%` }}></div>
+                                                </div>
+                                                <p className="text-[10px] text-neutral-400 font-bold mt-1">{percentage.toFixed(1)}% del total mensual</p>
+                                            </div>
+                                            <div className="mt-4 sm:mt-0 text-left sm:text-right">
+                                                <p className="text-2xl font-black italic text-rose-500 tracking-tighter">${cat.total.toFixed(2)}</p>
+                                            </div>
+                                        </div>
+
+                                        {/* Subcategorias Area */}
+                                        {isCatExpanded && (
+                                            <div className="bg-neutral-50/50 dark:bg-neutral-900/50 p-4 sm:p-6 space-y-3">
+                                                {cat.subcategorias.map((sub, j) => {
+                                                    const subKey = `${cat.name}-${sub.name}`;
+                                                    const isSubExpanded = expandedSubcategory === subKey;
+                                                    const subPercentage = (sub.total / cat.total) * 100;
+
+                                                    return (
+                                                        <div key={j} className="rounded-2xl border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-800 overflow-hidden shadow-sm">
+                                                            <div 
+                                                                onClick={() => setExpandedSubcategory(isSubExpanded ? null : subKey)}
+                                                                className="p-4 flex justify-between items-center cursor-pointer hover:bg-neutral-50 dark:hover:bg-neutral-700 transition-colors"
+                                                            >
+                                                                <div className="flex items-center gap-3">
+                                                                    <div className={`transition-transform duration-300 ${isSubExpanded ? 'rotate-90 text-blue-500' : 'text-neutral-400'}`}>
+                                                                        <ChevronRight className="w-4 h-4" />
+                                                                    </div>
+                                                                    <div>
+                                                                        <h5 className="text-sm font-bold uppercase">{sub.name}</h5>
+                                                                        <p className="text-[9px] font-black text-neutral-400 uppercase tracking-widest">{subPercentage.toFixed(0)}% de {cat.name}</p>
+                                                                    </div>
+                                                                </div>
+                                                                <div className="flex items-center gap-4">
+                                                                    <span className="text-[10px] font-black bg-neutral-100 dark:bg-neutral-900 px-2 py-1 rounded text-neutral-500">{sub.movimientos.length} movs</span>
+                                                                    <p className="text-lg font-black italic tracking-tighter text-rose-500">${sub.total.toFixed(2)}</p>
+                                                                </div>
+                                                            </div>
+
+                                                            {/* Movimientos List */}
+                                                            {isSubExpanded && (
+                                                                <div className="border-t border-neutral-100 dark:border-neutral-700 bg-neutral-50 dark:bg-neutral-900 p-4">
+                                                                    <div className="space-y-2">
+                                                                        {sub.movimientos.map((m, k) => (
+                                                                            <div key={k} className="flex justify-between items-center p-3 bg-white dark:bg-neutral-800 rounded-xl shadow-sm border border-neutral-100 dark:border-neutral-700 hover:border-blue-500 transition-colors group">
+                                                                                <div className="flex flex-col">
+                                                                                    <span className="text-xs font-bold uppercase text-neutral-800 dark:text-neutral-200">{m.concepto || 'Sin Concepto'}</span>
+                                                                                    <div className="flex items-center gap-2 mt-1">
+                                                                                        <span className="text-[9px] font-black text-neutral-400 uppercase tracking-widest">{new Date(m.created_at).toLocaleDateString()} {new Date(m.created_at).toLocaleTimeString()}</span>
+                                                                                        <span className="text-[8px] px-1.5 py-0.5 bg-neutral-200 dark:bg-neutral-700 rounded uppercase font-bold text-neutral-500">{m.metodo_pago}</span>
+                                                                                    </div>
+                                                                                </div>
+                                                                                <div className="text-right">
+                                                                                    <span className="text-sm font-black italic text-rose-500 tracking-tighter">${Number(m.monto).toFixed(2)}</span>
+                                                                                </div>
+                                                                            </div>
+                                                                        ))}
+                                                                    </div>
+                                                                </div>
+                                                            )}
+                                                        </div>
+                                                    );
+                                                })}
+                                            </div>
+                                        )}
+                                    </div>
+                                );
+                            })}
+                        </div>
+                    )}
+                </div>
+            </div>
+        </div>
+    );
+}
+
