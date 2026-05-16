@@ -123,6 +123,7 @@ export default function FinanzasPage() {
   const [cartDescuento, setCartDescuento] = useState("");
   const [cartMetodoPago, setCartMetodoPago] = useState<any>("Efectivo");
   const [cartReferencia, setCartReferencia] = useState("");
+  const [cartPagos, setCartPagos] = useState<{metodo: typeof METODOS_PAGO[number], monto: number, referencia: string}[]>([]);
   const [busquedaProducto, setBusquedaProducto] = useState("");
 
   const fetchData = useCallback(async () => {
@@ -193,10 +194,38 @@ export default function FinanzasPage() {
         }
   }, [activeTab]);
 
+  const movimientosValidos = useMemo(() => {
+      const movs = [...movimientos].sort((a,b) => new Date(a.created_at || '').getTime() - new Date(b.created_at || '').getTime());
+      const toRemove = new Set<string>();
+      
+      const anulaciones = movs.filter(m => m.concepto?.startsWith('ANULACIÓN: '));
+      
+      anulaciones.forEach(anul => {
+          const originalConcepto = anul.concepto!.replace('ANULACIÓN: ', '');
+          const originalTipo = anul.tipo === 'ingreso' ? 'egreso' : 'ingreso';
+          const originalMonto = anul.monto;
+          
+          const target = movs.find(m => 
+              m.tipo === originalTipo && 
+              Number(m.monto) === Number(originalMonto) && 
+              m.concepto === originalConcepto && 
+              new Date(m.created_at || '') <= new Date(anul.created_at || '') &&
+              !toRemove.has(m.id)
+          );
+          
+          if (target) {
+              toRemove.add(target.id);
+              toRemove.add(anul.id);
+          }
+      });
+      
+      return movs.filter(m => !toRemove.has(m.id));
+  }, [movimientos]);
+
   const stats = useMemo(() => {
-    const ingresos = movimientos.filter(m => m.tipo === 'ingreso' && !m.es_traslado).reduce((acc, m) => acc + (Number(m.monto) - Number(m.comision_pos || 0)), 0);
-    const egresos = movimientos.filter(m => m.tipo === 'egreso' && !m.es_traslado).reduce((acc, m) => acc + Number(m.monto), 0);
-    const utilidad = movimientos.filter(m => !m.es_traslado).reduce((acc, m) => acc + Number(m.utilidad_neta || 0), 0);
+    const ingresos = movimientosValidos.filter(m => m.tipo === 'ingreso' && !m.es_traslado).reduce((acc, m) => acc + (Number(m.monto) - Number(m.comision_pos || 0)), 0);
+    const egresos = movimientosValidos.filter(m => m.tipo === 'egreso' && !m.es_traslado).reduce((acc, m) => acc + Number(m.monto), 0);
+    const utilidad = movimientosValidos.filter(m => !m.es_traslado).reduce((acc, m) => acc + Number(m.utilidad_neta || 0), 0);
     
     // Capital real (Saldos en banco + Efectivo físico)
     const capitalDisponible = cuentas.reduce((acc, c) => acc + Number(c.saldo), 0);
@@ -210,7 +239,7 @@ export default function FinanzasPage() {
         deudasTotales, 
         liquidezTotal: capitalDisponible + saldosCobrar - deudasTotales 
     };
-  }, [movimientos, cuentas, deudas, saldosCobrar]);
+  }, [movimientosValidos, cuentas, deudas, saldosCobrar]);
 
   useEffect(() => {
     // Si no hay sesión abierta, intentar precargar el monto de apertura con el último cierre real
@@ -309,6 +338,26 @@ export default function FinanzasPage() {
     setCartItems(cartItems.filter(item => item.local_id !== local_id));
   };
 
+  const handleAddPagoRow = () => {
+    const subtotalVenta = cartItems.reduce((acc, item) => acc + item.subtotal, 0);
+    const descNum = Number(cartDescuento) || 0;
+    const totalFinal = subtotalVenta - descNum;
+    
+    // Calcular cuánto falta por pagar
+    const pagado = cartPagos.reduce((acc, p) => acc + p.monto, 0);
+    const restante = Math.max(0, totalFinal - pagado);
+
+    setCartPagos([...cartPagos, { metodo: 'Efectivo', monto: restante, referencia: '' }]);
+  };
+
+  const updatePagoRow = (index: number, updates: any) => {
+    setCartPagos(cartPagos.map((p, i) => i === index ? { ...p, ...updates } : p));
+  };
+
+  const removePagoRow = (index: number) => {
+    setCartPagos(cartPagos.filter((_, i) => i !== index));
+  };
+
   const handleAddIngreso = async () => {
     if (cartItems.length === 0) {
       alert("El carrito está vacío");
@@ -352,32 +401,50 @@ export default function FinanzasPage() {
         ? `Venta: ${cartItems[0].descripcion}` 
         : `Venta Múltiple (${cartItems.length} artículos)`;
 
-      // 4. Crear Movimiento
-      const data = await addMovimiento({
-        tipo: 'ingreso',
-        monto: totalFinal,
-        utilidad_neta: totalFinal, // Simplificación
-        concepto: conceptoResumen,
-        categoria: "Ventas",
-        metodo_pago: cartMetodoPago,
-        referencia_bancaria: cartReferencia,
-        perfil_id: user?.id,
-        es_traslado: false,
-        cliente_id: finalClienteId,
-        descuento: descNum,
-        subtotal: subtotalVenta
-      }, cartItems);
+      // 4. Procesar Pagos (Múltiples o Simple)
+      const pagosFinales = cartPagos.length > 0 ? cartPagos : [{ metodo: cartMetodoPago, monto: totalFinal, referencia: cartReferencia }];
+      const totalPagado = pagosFinales.reduce((acc, p) => acc + Number(p.monto), 0);
+
+      if (Math.abs(totalPagado - totalFinal) > 0.01) {
+        alert(`Error: El total de pagos ($${totalPagado.toFixed(2)}) no coincide con el total de la venta ($${totalFinal.toFixed(2)})`);
+        return;
+      }
+
+      let mainMovementId = "";
+      
+      // Creamos los movimientos financieros
+      for (let i = 0; i < pagosFinales.length; i++) {
+        const pago = pagosFinales[i];
+        const esPrimero = i === 0;
+
+        const movData = await addMovimiento({
+          tipo: 'ingreso',
+          monto: Number(pago.monto),
+          utilidad_neta: esPrimero ? totalFinal : 0, // La utilidad se asigna solo al primero para evitar duplicidad en reportes de utilidad
+          concepto: `${conceptoResumen} ${pagosFinales.length > 1 ? `(Pago ${i+1}/${pagosFinales.length})` : ''}`,
+          categoria: "Ventas",
+          metodo_pago: pago.metodo,
+          referencia_bancaria: pago.referencia,
+          perfil_id: user?.id,
+          es_traslado: false,
+          cliente_id: finalClienteId,
+          descuento: esPrimero ? descNum : 0,
+          subtotal: esPrimero ? subtotalVenta : 0
+        }, esPrimero ? cartItems : []); // Solo enviamos los items al primer movimiento para reducir stock una sola vez
+
+        if (esPrimero) mainMovementId = movData.id;
+      }
 
       // Mostrar Comprobante Automáticamente
       setComprobanteData({
-        numero_recibo: data?.id ? data.id.split('-')[0].toUpperCase() : Math.floor(Math.random() * 90000) + 10000 + "",
+        numero_recibo: mainMovementId ? mainMovementId.split('-')[0].toUpperCase() : Math.floor(Math.random() * 90000) + 10000 + "",
         cliente_nombre: clienteNombreFinal,
         monto: totalFinal,
         subtotal: subtotalVenta,
         descuento: descNum,
-        metodo_pago: cartMetodoPago,
+        metodo_pago: pagosFinales.length > 1 ? "MIXTO (" + pagosFinales.map(p => p.metodo).join('+') + ")" : cartMetodoPago,
         concepto: conceptoResumen,
-        detalles: cartItems, // Nuevo desglose
+        detalles: cartItems,
         fecha: new Date().toLocaleString(),
         atendido_por: user?.email?.split('@')[0] || "Admin"
       });
@@ -390,6 +457,7 @@ export default function FinanzasPage() {
       setCartNuevoClienteTelefono("");
       setCartDescuento("");
       setCartReferencia("");
+      setCartPagos([]);
       setBusquedaProducto("");
       fetchData();
       await logEvent('CREADO', 'Finanzas', `Venta POS por $${totalFinal}. Concepto: ${conceptoResumen}`);
@@ -1086,16 +1154,75 @@ export default function FinanzasPage() {
                               <span className="text-2xl font-black text-emerald-600">${Math.max(0, cartItems.reduce((acc, item) => acc + item.subtotal, 0) - (Number(cartDescuento) || 0)).toFixed(2)}</span>
                           </div>
 
-                          <div className="grid grid-cols-2 gap-3 mb-3">
-                              <select className="w-full bg-white dark:bg-neutral-900 border-none rounded-xl p-3 font-black text-[10px] uppercase tracking-widest" value={cartMetodoPago} onChange={(e) => setCartMetodoPago(e.target.value as any)}>
-                                  {METODOS_PAGO.map(m => <option key={m} value={m}>{m}</option>)}
-                              </select>
-                              <input 
-                                placeholder="Referencia (Opcional)" 
-                                className="w-full bg-white dark:bg-neutral-900 border-none rounded-xl p-3 font-bold text-[10px]"
-                                value={cartReferencia}
-                                onChange={(e) => setCartReferencia(e.target.value)}
-                              />
+                          <div className="space-y-3 mb-4">
+                              <h4 className="text-[10px] font-black text-neutral-400 uppercase tracking-widest flex justify-between items-center">
+                                  <span>Métodos de Pago</span>
+                                  {cartPagos.length === 0 && (
+                                      <button onClick={handleAddPagoRow} className="text-emerald-500 hover:underline flex items-center gap-1">
+                                          <Plus className="w-3 h-3" /> Pago Mixto
+                                      </button>
+                                  )}
+                              </h4>
+                              
+                              {cartPagos.length === 0 ? (
+                                  <div className="grid grid-cols-2 gap-3">
+                                      <select className="w-full bg-white dark:bg-neutral-900 border-none rounded-xl p-3 font-black text-[10px] uppercase tracking-widest" value={cartMetodoPago} onChange={(e) => setCartMetodoPago(e.target.value as any)}>
+                                          {METODOS_PAGO.map(m => <option key={m} value={m}>{m}</option>)}
+                                      </select>
+                                      <input 
+                                          placeholder="Referencia (Opcional)" 
+                                          className="w-full bg-white dark:bg-neutral-900 border-none rounded-xl p-3 font-bold text-[10px]"
+                                          value={cartReferencia}
+                                          onChange={(e) => setCartReferencia(e.target.value)}
+                                      />
+                                  </div>
+                              ) : (
+                                  <div className="space-y-2">
+                                      {cartPagos.map((pago, idx) => (
+                                          <div key={idx} className="flex gap-2 items-center animate-in slide-in-from-right-2 duration-300">
+                                              <select 
+                                                  className="bg-white dark:bg-neutral-900 border-none rounded-xl p-2 font-black text-[9px] uppercase tracking-widest w-24 shrink-0" 
+                                                  value={pago.metodo} 
+                                                  onChange={(e) => updatePagoRow(idx, { metodo: e.target.value as any })}
+                                              >
+                                                  {METODOS_PAGO.map(m => <option key={m} value={m}>{m}</option>)}
+                                              </select>
+                                              <input 
+                                                  type="number"
+                                                  placeholder="Monto"
+                                                  className="bg-white dark:bg-neutral-900 border-none rounded-xl p-2 font-black text-[9px] w-20 shrink-0"
+                                                  value={pago.monto}
+                                                  onChange={(e) => updatePagoRow(idx, { monto: Number(e.target.value) || 0 })}
+                                              />
+                                              <input 
+                                                  placeholder="Ref."
+                                                  className="flex-1 bg-white dark:bg-neutral-900 border-none rounded-xl p-2 font-bold text-[9px]"
+                                                  value={pago.referencia}
+                                                  onChange={(e) => updatePagoRow(idx, { referencia: e.target.value })}
+                                              />
+                                              <button onClick={() => removePagoRow(idx)} className="p-2 text-rose-500"><X className="w-3.5 h-3.5" /></button>
+                                          </div>
+                                      ))}
+                                      <button onClick={handleAddPagoRow} className="w-full py-2 border border-dashed border-neutral-300 dark:border-neutral-700 rounded-xl text-[9px] font-black uppercase text-neutral-400 hover:text-emerald-500 hover:border-emerald-500 transition-all">
+                                          + Añadir Otro Método
+                                      </button>
+                                      
+                                      {/* Restante Info */}
+                                      {(() => {
+                                          const subtotalVenta = cartItems.reduce((acc, item) => acc + item.subtotal, 0);
+                                          const descNum = Number(cartDescuento) || 0;
+                                          const totalFinal = subtotalVenta - descNum;
+                                          const pagado = cartPagos.reduce((acc, p) => acc + p.monto, 0);
+                                          const restante = totalFinal - pagado;
+                                          if (Math.abs(restante) < 0.01) return null;
+                                          return (
+                                              <div className={`text-center py-2 rounded-xl text-[9px] font-black uppercase ${restante > 0 ? 'bg-orange-50 text-orange-600' : 'bg-rose-50 text-rose-600'}`}>
+                                                  {restante > 0 ? `Faltan $${restante.toFixed(2)} por asignar` : `Sobran $${Math.abs(restante).toFixed(2)} en los pagos`}
+                                              </div>
+                                          );
+                                      })()}
+                                  </div>
+                              )}
                           </div>
 
                           <button onClick={handleAddIngreso} className="w-full py-3 bg-black dark:bg-emerald-500 text-white rounded-2xl font-black text-xs uppercase tracking-[0.2em] shadow-lg active:scale-95 transition-all">Cobrar Ticket</button>
