@@ -47,6 +47,10 @@ Este documento rastrea el cumplimiento de los requerimientos definidos en el [PR
 | **REQ-SEC-004** | `lib/supabase.ts` / Next.js | ✅ | Prevención nativa de Inyecciones y XSS. |
 | **REQ-REL-001** | Infraestructura (Supabase) | ✅ | Backups diarios automáticos habilitados. |
 | **REQ-REL-002** | Infraestructura (Supabase) | ✅ | SLA de disponibilidad del 99.9%. |
+| **REQ-FUN-016** | `reportes/page.tsx`, `caja/page.tsx` | ✅ | Desglose de artículos visible al expandir movimientos. |
+| **REQ-FUN-017** | `reportes/page.tsx` (Sidebar Logic) | ✅ | Cálculo de variación % vs mes anterior funcional. |
+| **REQ-FUN-018** | `reportes/page.tsx` (Month Picker) | ✅ | Navegación histórica por meses sin errores de scroll. |
+| **REQ-FUN-019** | `reparaciones/page.tsx` | ✅ | Bloqueo de guardado de reparaciones si la caja está cerrada. |
 
 ## 🔑 Leyenda de Estados
 - ✅ **Completado:** Implementado en código y verificado.
@@ -55,4 +59,4 @@ Este documento rastrea el cumplimiento de los requerimientos definidos en el [PR
 - 🚫 **Cancelado:** Requerimiento descartado o modificado.
 
 ---
-*Última actualización: 2026-05-03*
+*Última actualización: 2026-05-08*

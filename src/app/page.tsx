@@ -159,7 +159,7 @@ export default function Dashboard() {
             {user ? `Bienvenido, ${user.email?.split('@')[0]}` : 'Bienvenido'}
           </h1>
           <p className="text-neutral-500 dark:text-neutral-400 font-medium">
-            Resumen operativo y financiero de hoy en CTR Relojeria.
+            Resumen operativo y financiero de hoy en Centro Técnico Relojero.
           </p>
         </div>
         <div className="flex flex-row gap-2 md:gap-4 shrink-0 overflow-x-auto pb-2 md:pb-0 scrollbar-hide">

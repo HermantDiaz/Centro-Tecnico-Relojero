@@ -131,9 +131,9 @@ export default function Login() {
           </form>
         </div>
 
-        <p className="text-center mt-10 text-[9px] font-bold text-neutral-400 dark:text-neutral-600 uppercase tracking-widest leading-loose">
-           Propiedad Exclusiva de CTR Relojería<br/>
-           © 2026 Sistema Administrativo IA
+         <p className="text-center mt-10 text-[9px] font-bold text-neutral-400 dark:text-neutral-600 uppercase tracking-widest leading-loose">
+            Propiedad Exclusiva de Centro Técnico Relojero<br/>
+            © 2026 Sistema Administrativo CTR
         </p>
       </div>
     </div>

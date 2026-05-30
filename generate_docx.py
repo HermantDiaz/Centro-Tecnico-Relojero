@@ -25,11 +25,13 @@ def add_markdown_to_doc(doc, md_text):
                     p.add_run(part)
 
 doc = docx.Document()
-doc.add_heading('Actualización de Documentación: Relojería IA v2.0', 0)
+doc.add_heading('Actualización de Documentación: Relojería IA v2.1', 0)
 
 files_to_read = [
     ("README.md", "README.md"),
-    ("PRD.md", "docs/PRD.md"),
+    ("Requerimientos (PRD)", "docs/PRD.md"),
+    ("Matriz de Trazabilidad (RTM)", "docs/RTM.md"),
+    ("Diccionario de Datos", "docs/DATABASE.md"),
     ("Arquitectura", "docs/ARCHITECTURE.md"),
     ("Plan de Pruebas QA (UI/UX)", "docs/QA_UI_TEST_PLAN.md"),
     ("Formato Pruebas UX (Ficticio)", "docs/Formato_Pruebas_UX_Datos_Ficticios.md")

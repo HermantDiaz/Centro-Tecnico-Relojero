@@ -1,6 +1,6 @@
 # ⌚ PRD: Sistema Administrativo RELOJERÍA IA
 
-**Estado:** Versión 2.0 (Release Candidate / Completa)  
+**Estado:** Versión 2.1 (Analítica Pro & Auditoría Forense)  
 **Documento de Referencia:** [Matriz de Trazabilidad (RTM)](file:///d:/Proyecto%20IA/RELOJERIA%20IA/docs/RTM.md)
 
 ---
@@ -36,6 +36,10 @@ Digitalizar y automatizar la gestión operativa de CTR Relojería, resolviendo l
 | **REQ-FUN-013** | Configuración Global (ERP) | Módulo de Ajustes para personalizar Nombre, Eslogan, Moneda y Pie de Página. | Admin | Alta | Sincronización Realtime con Supabase; los cambios aplican instantáneamente en todos los clientes conectados. |
 | **REQ-FUN-014** | Previsualización de Recibos | Mockup en vivo de cómo se imprimirá el ticket de caja al cliente. | Admin | Media | Editor en vivo que responde letra a letra a la configuración ingresada en Ajustes. |
 | **REQ-FUN-015** | Exportación de Recibos | Capacidad de imprimir físicamente o exportar comprobantes de pago. | Admin, Recepción | Media | Botón "Imprimir" que levanta la ventana nativa del navegador con formato de 80mm/Ticket. (Generación PDF en desarrollo). |
+| **REQ-FUN-016** | Auditoría de Drill-Down | Capacidad de desglosar movimientos de caja para ver artículos específicos (cantidad, descripción, subtotal) desde reportes y caja. | Admin | Alta | Cada transacción es expansible para visualizar el desglose de productos del inventario vinculados. |
+| **REQ-FUN-017** | Análisis Temporal Comparativo | Visualización de variaciones porcentuales de ingresos/gastos comparando el mes actual con el anterior. | Admin | Alta | Indicadores de crecimiento/decrecimiento automático en el panel lateral de auditoría. |
+| **REQ-FUN-018** | Filtro Mensual de BI | Navegación histórica por mes y año para auditoría de rendimiento financiero. | Admin | Alta | Selector de mes/año funcional que recalcula todo el dashboard de reportes instantáneamente. |
+| **REQ-FUN-019** | Seguridad de Operación | Bloqueo preventivo de reparaciones y abonos si no existe una sesión de caja abierta. | Recepción | Crítica | El sistema impide guardar cambios financieros si detecta que la caja está cerrada, forzando la apertura de jornada. |
 
 ### 3.2. Requerimientos No Funcionales (NFC)
 | ID | Nombre | Descripción | Actores | Prioridad | Criterios de Aceptación |
@@ -80,6 +84,7 @@ Digitalizar y automatizar la gestión operativa de CTR Relojería, resolviendo l
 | :--- | :--- | :--- | :--- | :---: | :--- |
 | **REQ-REL-001** | Backup Automático | Copias de seguridad diarias de la base de datos PostgreSQL. | Sistema | Alta | Capacidad de restauración a un punto en el tiempo (PITR) de hasta 7 días. |
 | **REQ-REL-002** | Alta Disponibilidad | Garantía de tiempo en línea superior al 99.9%. | Sistema | Media | El sistema debe estar accesible sin interrupciones críticas durante el horario comercial. |
+
 | **REQ-REL-003** | Auto-Limitación de Memoria | Restricción del Payload histórico para evitar cuellos de botella en Browser RAM. | Sistema | Crítica | La extracción de Base de Datos para el BI tiene un límite natural (fetch) fijado en 12 meses. |
 
 ---

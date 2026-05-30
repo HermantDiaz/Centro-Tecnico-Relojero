@@ -60,8 +60,17 @@ src/
 └── lib/            # Configuración de clientes (Supabase)
 ```
 
-## 📉 Patrones de Diseño
-- **Client-Side Rendering (CSR):** La mayoría de las páginas usan `"use client"` para permitir interacciones rápidas y estados de carga fluidos.
-- **Topologías Financieras Reactivas:** El uso concurrente de `useMemo` anidado con ciclos de fechas limitados (Memoria topada a 12 Meses base) previene "Browser Memory Leaks" al escalar, actualizando gráficos sin re-requestear al servidor cada segundo.
-- **Atomic Design (Simplificado):** Los componentes se agrupan por su función (UI, Auth, Layout).
-- **Integridad Transaccional**: Los campos como `saldo_pendiente` se calculan en el cliente y se validan en el servidor para asegurar que nunca existan descuadres financieros; anulaciones de movimientos monetarios generan transacciones reversas (+ y -) de compensación antes de eliminaciones absolutas.
+## 📊 Analítica y Auditoría Forense (Módulo BI)
+
+El sistema implementa una capa de **Business Intelligence (BI)** diseñada para ofrecer transparencia total sin sacrificar el rendimiento:
+
+1.  **Drill-Down Recursivo**: Las consultas a movimientos de caja integran un *join* con `caja_movimientos_detalles`. La UI utiliza un patrón de **Lazy Drill-down** donde el detalle de artículos vendidos se renderiza mediante un componente de expansión que solo procesa datos cuando el usuario interactúa.
+2.  **Analítica Temporal Comparativa**: El motor de reportes calcula automáticamente deltas porcentuales (crecimiento/decrecimiento) comparando los agregados del periodo actual contra el anterior (ej. Mayo vs Abril), permitiendo detectar fugas de capital o picos de ventas instantáneamente.
+3.  **Trazabilidad de Inventario-Reparación**: Se establece un vínculo relacional entre el stock y el taller. Al aplicar un insumo a una reparación, el sistema garantiza la atomicidad de la operación: se descuenta el stock, se aumenta el costo de la reparación y se genera el registro contable en un solo flujo.
+
+## 🛡️ Integridad Transaccional Avanzada
+- **Bloqueo por Sesión de Caja**: Las operaciones financieras en el taller (reparaciones/abonos) están condicionadas al estado global de la caja. El sistema consulta el hook `useCaja` para verificar si existe una jornada activa antes de permitir persistir cambios, mitigando descuadres por operaciones "fuera de turno".
+- **Compensación de Anulaciones**: Las anulaciones de movimientos monetarios generan transacciones reversas (+ y -) de compensación antes de eliminaciones absolutas, manteniendo la integridad del libro contable.
+
+---
+*Última revisión técnica: Mayo 2026*

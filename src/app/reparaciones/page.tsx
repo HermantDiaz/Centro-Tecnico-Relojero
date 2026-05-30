@@ -101,6 +101,9 @@ export default function ReparacionesPage() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [importStatus, setImportStatus] = useState<any>(null);
 
+  const [deliveryReparacionId, setDeliveryReparacionId] = useState<string | null>(null);
+  const [deliveryPaymentMethod, setDeliveryPaymentMethod] = useState<string>("Efectivo");
+
   const [form, setForm] = useState({
     numero_recibo: "",
     nombre_cliente: "",
@@ -542,40 +545,9 @@ export default function ReparacionesPage() {
           alert("Debe abrir caja antes de entregar y cobrar saldos pendientes.");
           return;
         }
-        const confirmPay = confirm(`¿Cobrar saldo pendiente de $${rep.saldo_pendiente} para entrega?`);
-        if (!confirmPay) return;
-
-        // Auto-update abono to match precio_final
-        await supabase.from('reparaciones').update({ abono: rep.precio_final, estado: 'entregado' }).eq('id', id);
-        
-        await addMovimiento({
-          tipo: 'ingreso',
-          monto: rep.saldo_pendiente,
-          utilidad_neta: rep.saldo_pendiente * 0.7,
-          concepto: `Cancelación Saldo # ${rep.numero_recibo}`,
-          categoria: "Reparaciones",
-          metodo_pago: "Efectivo", // Por defecto efectivo en entrega rápida
-          referencia_id: id,
-          es_traslado: false
-        });
-
-        setLastMovementData({
-           numero_recibo: rep.numero_recibo,
-           cliente_nombre: rep.clientes?.nombre_completo || "Cliente",
-           monto: rep.saldo_pendiente,
-           metodo_pago: "Efectivo",
-           concepto: "Cancelación de Saldo y Entrega",
-           fecha: new Date().toLocaleString(),
-           atendido_por: user?.email?.split('@')[0] || "Admin",
-           subtotal: rep.saldo_pendiente,
-           descuento: 0,
-           detalles: [{
-             cantidad: 1,
-             descripcion: `Cancelación de Saldo - ${rep.marca} ${rep.modelo_descripcion || ""}`,
-             precio_unitario: rep.saldo_pendiente,
-             subtotal: rep.saldo_pendiente
-           }]
-        });
+        setDeliveryReparacionId(id);
+        setDeliveryPaymentMethod("Efectivo");
+        return; // Flow continues in handleConfirmDelivery Modal
       } else {
         const { error } = await supabase.from('reparaciones').update({ estado: newStatus }).eq('id', id);
         if (error) throw error;
@@ -590,6 +562,62 @@ export default function ReparacionesPage() {
         fetchHistory(id);
       }
     } catch (err: any) { alert(err.message); }
+  };
+
+  const handleConfirmDelivery = async () => {
+    if (!deliveryReparacionId) return;
+    const id = deliveryReparacionId;
+    const rep = reparaciones.find(r => r.id === id);
+    if (!rep) return;
+    setIsSubmitting(true);
+
+    try {
+      // Auto-update abono to match precio_final
+      await supabase.from('reparaciones').update({ abono: rep.precio_final, estado: 'entregado' }).eq('id', id);
+      
+      await addMovimiento({
+        tipo: 'ingreso',
+        monto: rep.saldo_pendiente,
+        utilidad_neta: rep.saldo_pendiente * 0.7,
+        concepto: `Cancelación Saldo # ${rep.numero_recibo}`,
+        categoria: "Reparaciones",
+        metodo_pago: deliveryPaymentMethod as any,
+        referencia_id: id,
+        es_traslado: false
+      });
+
+      setLastMovementData({
+         numero_recibo: rep.numero_recibo,
+         cliente_nombre: rep.clientes?.nombre_completo || "Cliente",
+         monto: rep.saldo_pendiente,
+         metodo_pago: deliveryPaymentMethod,
+         concepto: "Cancelación de Saldo y Entrega",
+         fecha: new Date().toLocaleString(),
+         atendido_por: user?.email?.split('@')[0] || "Admin",
+         subtotal: rep.saldo_pendiente,
+         descuento: 0,
+         detalles: [{
+           cantidad: 1,
+           descripcion: `Cancelación de Saldo - ${rep.marca} ${rep.modelo_descripcion || ""}`,
+           precio_unitario: rep.saldo_pendiente,
+           subtotal: rep.saldo_pendiente
+         }]
+      });
+
+      await createHistoryEntry(id, "Cambio de Estado", rep.estado, 'entregado');
+      
+      fetchInitialData();
+      fetchWorkload();
+      if (selectedReparacion?.id === id) {
+        setSelectedReparacion({ ...selectedReparacion, estado: 'entregado' });
+        fetchHistory(id);
+      }
+      setDeliveryReparacionId(null);
+    } catch (err: any) { 
+      alert(err.message); 
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   const handleDelete = async (id: string) => {
@@ -734,6 +762,7 @@ export default function ReparacionesPage() {
     const matchesSearch =
       (r.numero_recibo || "").toLowerCase().includes(s) ||
       (r.clientes?.nombre_completo || "").toLowerCase().includes(s) ||
+      (r.clientes?.telefono || "").toLowerCase().includes(s) ||
       (r.marca || "").toLowerCase().includes(s) ||
       (r.modelo_descripcion || "").toLowerCase().includes(s);
 
@@ -818,7 +847,7 @@ export default function ReparacionesPage() {
           <Search className="absolute left-5 top-1/2 -translate-y-1/2 w-4 h-4 text-neutral-400 group-focus-within:text-black dark:group-focus-within:text-white transition-colors pointer-events-none" />
           <input
             type="text"
-            placeholder="Buscar por ticket, cliente o marca..."
+            placeholder="Buscar por ticket, cliente, teléfono o marca..."
             className="w-full pl-12 pr-6 py-4 rounded-2xl bg-white dark:bg-neutral-900 border border-neutral-100 dark:border-neutral-800 text-sm font-medium outline-none focus:ring-4 focus:ring-black/5 dark:focus:ring-white/5 transition-all shadow-sm"
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
@@ -1414,6 +1443,50 @@ export default function ReparacionesPage() {
           </div>
         </div>
       )}
+
+      {/* Delivery Payment Modal */}
+      {deliveryReparacionId && (() => {
+        const rep = reparaciones.find(r => r.id === deliveryReparacionId);
+        if (!rep) return null;
+        return (
+          <div className="fixed inset-0 z-[60] flex items-center justify-center p-6 bg-black/80 backdrop-blur-xl animate-in fade-in duration-500">
+            <div className="bg-white dark:bg-neutral-900 w-full max-w-md rounded-[3rem] p-10 border border-neutral-100 dark:border-neutral-800 shadow-2xl relative text-center">
+              <button onClick={() => setDeliveryReparacionId(null)} className="absolute top-6 right-6 p-3 rounded-full hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-all"><X className="w-4 h-4" /></button>
+              
+              <div className="w-16 h-16 rounded-full bg-green-100 dark:bg-green-900/30 text-green-600 dark:text-green-400 flex items-center justify-center mx-auto mb-6 shadow-inner">
+                <DollarSign className="w-8 h-8" />
+              </div>
+              
+              <h2 className="text-2xl font-black italic uppercase tracking-tighter mb-2">Cobro de Saldo</h2>
+              <p className="text-neutral-500 font-bold mb-8 text-xs">Al entregar este reloj, se cobrará el saldo pendiente y se registrará en caja.</p>
+              
+              <div className="bg-neutral-50 dark:bg-neutral-800 p-6 rounded-3xl mb-8">
+                <p className="text-[10px] font-black uppercase tracking-widest text-neutral-400 mb-1">Monto a Cobrar</p>
+                <p className="text-4xl font-black text-green-600 dark:text-green-400 italic">${rep.saldo_pendiente}</p>
+              </div>
+
+              <div className="space-y-4 text-left">
+                <label className="text-[10px] font-black uppercase tracking-widest text-neutral-400 ml-2">Método de Pago</label>
+                <select 
+                  className="w-full px-5 py-4 rounded-xl bg-neutral-50 dark:bg-neutral-800 text-sm font-bold border-none outline-none ring-0 focus:ring-2 focus:ring-black/5 transition-all cursor-pointer"
+                  value={deliveryPaymentMethod}
+                  onChange={(e) => setDeliveryPaymentMethod(e.target.value)}
+                >
+                  {["Efectivo", "BAC", "LAFISE", "BANPRO", "POS"].map(m => <option key={m} value={m}>{m}</option>)}
+                </select>
+              </div>
+
+              <button 
+                disabled={isSubmitting} 
+                onClick={handleConfirmDelivery} 
+                className="w-full mt-8 py-5 rounded-[2rem] bg-black dark:bg-white text-white dark:text-black font-black uppercase tracking-widest text-[10px] flex items-center justify-center gap-2 hover:scale-105 active:scale-95 transition-all shadow-xl"
+              >
+                {isSubmitting ? <Loader2 className="w-4 h-4 animate-spin" /> : <><CheckCircle2 className="w-4 h-4" /> Confirmar Entrega y Cobro</>}
+              </button>
+            </div>
+          </div>
+        );
+      })()}
 
       {/* Comprobante Digital Modal */}
       {lastMovementData && (

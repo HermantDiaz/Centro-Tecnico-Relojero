@@ -47,8 +47,8 @@ export default function Sidebar() {
           </div>
         </div>
         <div className="text-center">
-          <h2 className="text-sm font-black tracking-[0.2em] text-neutral-900 dark:text-white uppercase italic">
-            RelojerIa IA
+          <h2 className="text-[11px] font-black tracking-[0.1em] text-neutral-900 dark:text-white uppercase italic text-center leading-tight">
+            Centro Técnico<br/>Relojero
           </h2>
           <p className="text-[10px] text-neutral-400 font-bold uppercase tracking-widest mt-1">Software System</p>
         </div>

@@ -40,7 +40,7 @@ export default function ComprobantePago({ data, onClose }: ComprobanteProps) {
     printWindow.document.write(`
       <html>
         <head>
-          <title>Comprobante de Pago - CTR Relojeria</title>
+          <title>Comprobante de Pago - Centro Técnico Relojero</title>
           <style>
             body { font-family: 'Inter', sans-serif; padding: 40px; color: #000; }
             /* Default styles for raw HTML if tailwind is not loaded in print window */

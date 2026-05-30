@@ -43,6 +43,7 @@ export interface CajaMovimiento {
   es_traslado: boolean;
   comision_pos: number;
   created_at: string;
+  caja_movimientos_detalles?: MovimientoDetalle[];
 }
 
 export const useCaja = () => {
@@ -83,7 +84,17 @@ export const useCaja = () => {
   const openCaja = async (monto: number, notas?: string) => {
     if (!user) throw new Error('Usuario no autenticado');
 
-    // Prevent orphaned sessions by forcing all currently open sessions to close
+    // 1. Obtener saldo global previo para detectar fugas fuera de turno
+    const { data: cuentaEfectivo } = await supabase
+      .from('tesoreria_cuentas')
+      .select('saldo')
+      .eq('nombre', 'Efectivo')
+      .single();
+    
+    const saldoAnterior = Number(cuentaEfectivo?.saldo || 0);
+    const diferenciaApertura = monto - saldoAnterior;
+
+    // 2. Cerrar sesiones huérfanas forzosamente
     await supabase
       .from('caja_sesiones')
       .update({
@@ -93,7 +104,8 @@ export const useCaja = () => {
       })
       .eq('estado', 'abierta');
 
-    const { data, error } = await supabase
+    // 3. Crear nueva sesión
+    const { data: nuevaSesion, error } = await supabase
       .from('caja_sesiones')
       .insert([{
         abierta_por: user.id,
@@ -106,8 +118,31 @@ export const useCaja = () => {
       .single();
 
     if (error) throw error;
-    setSession(data);
-    return data;
+
+    // 4. Generar movimiento automático si hubo fuga o sobrante fuera de turno
+    if (diferenciaApertura !== 0) {
+      await supabase.from('caja_movimientos').insert([{
+        sesion_id: nuevaSesion.id,
+        tipo: diferenciaApertura > 0 ? 'ingreso' : 'egreso',
+        monto: Math.abs(diferenciaApertura),
+        utilidad_neta: 0,
+        concepto: diferenciaApertura > 0 ? 'Ajuste: Sobrante detectado al abrir caja (Ingreso no registrado)' : 'Ajuste: Faltante detectado al abrir caja (Fuga fuera de turno)',
+        categoria: 'Ajuste de Caja',
+        metodo_pago: 'Efectivo',
+        es_traslado: false,
+        comision_pos: 0,
+        perfil_id: user.id
+      }]);
+      // Sincronizar tesorería con la realidad declarada al abrir
+      const { error: tesoreriaError } = await supabase.from('tesoreria_cuentas').update({ saldo: monto }).eq('nombre', 'Efectivo');
+      if (tesoreriaError) {
+        console.error("Error actualizando tesorería en apertura:", tesoreriaError);
+        throw new Error("No se pudo actualizar la bóveda. Posible restricción de permisos (RLS).");
+      }
+    }
+
+    setSession(nuevaSesion);
+    return nuevaSesion;
   };
 
   const closeCaja = async (id: string, montoReal: number, notas?: string) => {
@@ -115,6 +150,22 @@ export const useCaja = () => {
     
     const diferencia = montoReal - (session?.monto_cierre_esperado || 0);
     
+    // Generar ajuste automático en el ledger si hubo descuadre durante el turno
+    if (diferencia !== 0) {
+      await supabase.from('caja_movimientos').insert([{
+        sesion_id: id,
+        tipo: diferencia > 0 ? 'ingreso' : 'egreso',
+        monto: Math.abs(diferencia),
+        utilidad_neta: 0,
+        concepto: diferencia > 0 ? 'Ajuste: Sobrante no justificado en cierre de turno' : 'Ajuste: Faltante reportado en cierre de turno',
+        categoria: 'Ajuste de Caja',
+        metodo_pago: 'Efectivo',
+        es_traslado: false,
+        comision_pos: 0,
+        perfil_id: user.id
+      }]);
+    }
+
     const { data, error } = await supabase
       .from('caja_sesiones')
       .update({
@@ -132,7 +183,13 @@ export const useCaja = () => {
     if (error) throw error;
     
     // Forzar la sincronización de la bóveda de Efectivo con el arqueo físico real
-    await supabase.from('tesoreria_cuentas').update({ saldo: montoReal }).eq('nombre', 'Efectivo');
+    const { error: tesoreriaError } = await supabase.from('tesoreria_cuentas').update({ saldo: montoReal }).eq('nombre', 'Efectivo');
+    
+    if (tesoreriaError) {
+      console.error("Error actualizando tesorería en cierre:", tesoreriaError);
+      // No bloqueamos el cierre si falla la tesorería, pero dejamos log.
+      // throw new Error("Caja cerrada, pero hubo un error actualizando la bóveda: " + tesoreriaError.message);
+    }
 
     setSession(null);
     return data;
@@ -190,12 +247,79 @@ export const useCaja = () => {
     return data;
   };
 
+  const justifyShortage = async (sesionId: string, expenses: Array<{monto: number, concepto: string, categoria: string, subcategoria_id?: string}>) => {
+    if (!user) throw new Error('Usuario no autenticado');
+
+    // 1. Obtener la sesión
+    const { data: sesion, error: sesError } = await supabase
+      .from('caja_sesiones')
+      .select('*')
+      .eq('id', sesionId)
+      .single();
+    
+    if (sesError || !sesion) throw new Error('No se encontró la sesión');
+    if (sesion.estado !== 'cerrada') throw new Error('Solo se pueden justificar faltantes de sesiones cerradas');
+
+    // 2. Buscar el movimiento de ajuste automático (Faltante)
+    const { data: ajusteMov } = await supabase
+      .from('caja_movimientos')
+      .select('id, monto')
+      .eq('sesion_id', sesionId)
+      .eq('concepto', 'Ajuste: Faltante reportado en cierre de turno')
+      .eq('tipo', 'egreso')
+      .maybeSingle();
+
+    // 3. Insertar nuevos gastos
+    const totalNuevosGastos = expenses.reduce((acc, e) => acc + Number(e.monto), 0);
+    
+    const dbExpenses = expenses.map(e => ({
+      sesion_id: sesionId,
+      tipo: 'egreso' as const,
+      monto: Number(e.monto),
+      utilidad_neta: 0,
+      concepto: e.concepto,
+      categoria: e.categoria,
+      subcategoria_id: e.subcategoria_id,
+      metodo_pago: 'Efectivo' as const,
+      es_traslado: false,
+      comision_pos: 0,
+      perfil_id: user.id,
+      created_at: sesion.fecha_cierre
+    }));
+
+    const { error: insError } = await supabase.from('caja_movimientos').insert(dbExpenses);
+    if (insError) throw insError;
+
+    // 4. Eliminar el ajuste original si existía
+    if (ajusteMov) {
+      await supabase.from('caja_movimientos').delete().eq('id', ajusteMov.id);
+    }
+
+    // 5. Recalcular balance de la sesión
+    const nuevoMontoEsperado = Number(sesion.monto_cierre_esperado) - totalNuevosGastos;
+    const nuevaDiferencia = Number(sesion.monto_cierre_real) - nuevoMontoEsperado;
+
+    const { error: updError } = await supabase
+      .from('caja_sesiones')
+      .update({
+        monto_cierre_esperado: nuevoMontoEsperado,
+        diferencia: nuevaDiferencia,
+        notas: (sesion.notas || '') + ` | JUSTIFICACIÓN FALTANTE: Se registraron ${expenses.length} gastos reales.`
+      })
+      .eq('id', sesionId);
+
+    if (updError) throw updError;
+
+    return { success: true };
+  };
+
   return {
     session,
     loading,
     openCaja,
     closeCaja,
     addMovimiento,
+    justifyShortage,
     refresh: fetchSession
   };
 };

@@ -14,10 +14,10 @@ export interface EmpresaConfig {
 
 const defaultConfig: EmpresaConfig = {
   id: 'default',
-  nombre_empresa: 'RELOJERIA IA',
-  eslogan: 'CTR Relojeria Software System',
-  direccion_telefono: 'Nicaragua - Gestión Financiera Centralizada',
-  mensaje_despedida: '¡Gracias por confiar en CTR Relojeria!',
+  nombre_empresa: 'Centro Técnico Relojero',
+  eslogan: 'Especialistas en Relojería de Alta Gama',
+  direccion_telefono: 'Nicaragua - Gestión Administrativa Centralizada',
+  mensaje_despedida: '¡Gracias por confiar en Centro Técnico Relojero!',
   moneda_principal: 'C$'
 };
 
