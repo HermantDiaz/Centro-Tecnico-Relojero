@@ -39,3 +39,9 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# pg binaries and archives
+/pg_binaries/
+/pg17_binaries/
+*.zip
+
