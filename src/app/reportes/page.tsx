@@ -81,6 +81,8 @@ export default function ReportesPage() {
 
   // Turno modal state
   const [selectedSesionForDetails, setSelectedSesionForDetails] = useState<CajaSesion | null>(null);
+  const [movimientosSesion, setMovimientosSesion] = useState<Movimiento[]>([]);
+  const [loadingMovimientosSesion, setLoadingMovimientosSesion] = useState(false);
 
   // Lock body scroll when drawer/modal is open
   useEffect(() => {
@@ -97,33 +99,53 @@ export default function ReportesPage() {
         const fetchReportes = async () => {
             setFetching(true);
             try {
+                // Rango de fechas según el filtro seleccionado para optimizar consultas a Supabase
+                const getQueryRange = () => {
+                    const now = new Date();
+                    let start = new Date(0);
+                    let end = new Date();
+                    
+                    if (timeFilter === '7d') {
+                        start = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 6, 0, 0, 0, 0);
+                    } else if (timeFilter === '30d') {
+                        start = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 29, 0, 0, 0, 0);
+                    } else if (timeFilter === 'month') {
+                        start = new Date(selectedYear, selectedMonth, 1, 0, 0, 0, 0);
+                        end = new Date(selectedYear, selectedMonth + 1, 0, 23, 59, 59, 999);
+                    } else if (timeFilter === '12m') {
+                        start = new Date(now.getFullYear(), now.getMonth() - 11, 1, 0, 0, 0, 0);
+                    }
+                    return { start: start.toISOString(), end: end.toISOString() };
+                };
+
+                const { start, end } = getQueryRange();
+
                 // 1. Fetch Sesiones / Turnos
-                const { data: ses, error: sesError } = await supabase
-                    .from('caja_sesiones')
-                    .select('*')
-                    .order('fecha_apertura', { ascending: false });
+                let sesQuery = supabase.from('caja_sesiones').select('*');
                 
-                if (sesError) console.error("Error fetching sesiones:", sesError);
-                if (ses) setSesiones(ses as any);
+                // 2. Fetch Movimientos para el P&L Global
+                let movsQuery = supabase.from('caja_movimientos').select(`
+                    id, tipo, monto, es_traslado, created_at, concepto, sesion_id, metodo_pago, categoria, subcategoria_id,
+                    caja_movimientos_detalles (
+                        descripcion, cantidad, precio_unitario, subtotal
+                    )
+                `);
 
-                // 2. Fetch Movimientos para el P&L Global (Límite 12 meses por seguridad)
-                const limiteDoceMeses = new Date();
-                limiteDoceMeses.setFullYear(limiteDoceMeses.getFullYear() - 1);
-                limiteDoceMeses.setDate(1);
+                if (timeFilter !== 'all') {
+                    sesQuery = sesQuery.gte('fecha_apertura', start).lte('fecha_apertura', end);
+                    movsQuery = movsQuery.gte('created_at', start).lte('created_at', end);
+                }
 
-                const { data: movs, error: movsError } = await supabase
-                    .from('caja_movimientos')
-                    .select(`
-                        id, tipo, monto, es_traslado, created_at, concepto, sesion_id, metodo_pago, categoria, subcategoria_id,
-                        caja_movimientos_detalles (
-                            descripcion, cantidad, precio_unitario, subtotal
-                        )
-                    `)
-                    .gte('created_at', limiteDoceMeses.toISOString())
-                    .order('created_at', { ascending: true });
+                const [sesRes, movsRes] = await Promise.all([
+                    sesQuery.order('fecha_apertura', { ascending: false }),
+                    movsQuery.order('created_at', { ascending: true })
+                ]);
                 
-                if (movsError) console.error("Error fetching movs:", movsError);
-                if (movs) setMovimientos(movs as any);
+                if (sesRes.error) console.error("Error fetching sesiones:", sesRes.error);
+                if (sesRes.data) setSesiones(sesRes.data as any);
+
+                if (movsRes.error) console.error("Error fetching movs:", movsRes.error);
+                if (movsRes.data) setMovimientos(movsRes.data as any);
 
                 // Fetch Subcategories Map
                 const { data: subcats } = await supabase.from('caja_subcategorias').select('id, nombre');
@@ -161,7 +183,39 @@ export default function ReportesPage() {
 
         fetchReportes();
     }
-  }, [user, rol]);
+  }, [user, rol, timeFilter, selectedMonth, selectedYear]);
+
+  // Carga diferida (lazy load) de los movimientos de la sesión seleccionada
+  useEffect(() => {
+    if (selectedSesionForDetails?.id) {
+        const fetchSessionMovements = async () => {
+            setLoadingMovimientosSesion(true);
+            try {
+                const { data, error } = await supabase
+                    .from('caja_movimientos')
+                    .select(`
+                        id, tipo, monto, es_traslado, created_at, concepto, sesion_id, metodo_pago, categoria, subcategoria_id,
+                        caja_movimientos_detalles (
+                            descripcion, cantidad, precio_unitario, subtotal
+                        )
+                    `)
+                    .eq('sesion_id', selectedSesionForDetails.id)
+                    .order('created_at', { ascending: false });
+                
+                if (error) throw error;
+                setMovimientosSesion(data as any || []);
+            } catch (err) {
+                console.error("Error fetching session movements:", err);
+                setMovimientosSesion([]);
+            } finally {
+                setLoadingMovimientosSesion(false);
+            }
+        };
+        fetchSessionMovements();
+    } else {
+        setMovimientosSesion([]);
+    }
+  }, [selectedSesionForDetails]);
 
   const handleSaveJustify = async () => {
       if (!selectedSesionForDetails) return;
@@ -1036,13 +1090,16 @@ export default function ReportesPage() {
                   </div>
 
                   <div className="flex-1 overflow-y-auto pr-2 pb-4">
-                      {movimientos.filter(m => m.sesion_id === selectedSesionForDetails.id).length === 0 ? (
+                      {loadingMovimientosSesion ? (
+                          <div className="flex flex-col items-center justify-center py-20 space-y-4">
+                              <div className="w-10 h-10 border-4 border-neutral-100 dark:border-neutral-800 border-t-blue-500 rounded-full animate-spin"></div>
+                              <p className="text-xs font-bold text-neutral-400 uppercase tracking-widest animate-pulse">Obteniendo movimientos...</p>
+                          </div>
+                      ) : movimientosSesion.length === 0 ? (
                           <div className="text-center py-20 text-neutral-400 italic text-sm">No hubo movimientos extraídos en este turno.</div>
                       ) : (
                           <div className="space-y-3">
-                              {movimientos.filter(m => m.sesion_id === selectedSesionForDetails.id)
-                                .sort((a,b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
-                                .map((m, i) => (
+                              {movimientosSesion.map((m, i) => (
                                   <div 
                                     key={i} 
                                     onClick={() => setExpandedMovId(expandedMovId === m.id ? null : m.id)}
@@ -1072,7 +1129,7 @@ export default function ReportesPage() {
                                           <div className="flex items-center gap-4">
                                               <div className="text-right">
                                                   <p className={`font-black italic text-lg tracking-tighter ${m.tipo === 'ingreso' ? 'text-emerald-500' : 'text-rose-500'}`}>
-                                                      {m.tipo === 'ingreso' ? '+' : '-'}${m.monto.toFixed(2)}
+                                                      {m.tipo === 'ingreso' ? '+' : '-'}${Number(m.monto).toFixed(2)}
                                                   </p>
                                               </div>
                                               <div className={`transition-transform duration-300 ${expandedMovId === m.id ? 'rotate-90 text-blue-500' : 'text-neutral-300'}`}>
