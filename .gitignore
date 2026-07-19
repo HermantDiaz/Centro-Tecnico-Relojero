@@ -45,3 +45,8 @@ next-env.d.ts
 /pg17_binaries/
 *.zip
 
+
+# Database schemas and documentation dumps
+*.sql
+*.docx
+*.doc
