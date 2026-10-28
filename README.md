@@ -1,5 +1,5 @@
 # ⌚ RELOJERÍA IA - Sistema Administrativo
-**Estado Actual:** `v12.0 - PRODUCCIÓN (Día 1)` (Módulo de Ajustes Súper Profesional, Recibos Dinámicos, Sincronización Realtime y Seguridad RLS Parcheada)
+**Estado Actual:** `v12.3.0 - PRODUCCIÓN` (Sistema POS, Auditoría Forense, Routing Bancario, Exportador PDF P&L, y Seguridad RLS Parcheada)
 
 ## 🚀 Tecnologías Principales
 
@@ -14,11 +14,11 @@
 - `src/app/`: Rutas y páginas de la aplicación (Next.js App Router).
   - `/admin/usuarios`: Gestión de equipo y roles.
   - `/inventario`: Control de stock, repuestos y categorías.
-  - `/reparaciones`: Seguimiento de servicios técnicos, CRM de clientes y estado en taller.
-  - `/caja`: Control de Caja Diaria, blindaje antifraude y traslados de efectivo/bancos.
+  - `/reparaciones`: Seguimiento de servicios técnicos, CRM de clientes (búsqueda por teléfono), estado en taller y enrutamiento bancario directo.
+  - `/caja`: Sistema POS con carrito e inventario, control de Caja Diaria, blindaje antifraude y traslados de efectivo/bancos.
   - `/finanzas` (Deprecated): Integrado y absorbido por `/caja` y `/reportes`.
   - `/deudas`: Cuentas por cobrar y pagar sincronizadas al Flujo de Caja.
-  - `/reportes`: BI (Business Intelligence) Reactivo, Top de Ingresos/Gastos con filtros históricos y optimización de memoria a 12 meses.
+  - `/reportes`: Auditoría forense de turnos, exportador PDF del balance diario P&L, BI Reactivo, y desglose de artículos.
   - `/ajustes`: Panel central de configuración (Módulo de Apariencia, Moneda Global y Recibos Dinámicos con previsualización).
 - `src/components/`: Componentes React reutilizables (Sidebar, AuthProvider, etc.).
 - `src/lib/`: Utilidades y configuraciones (Supabase client).

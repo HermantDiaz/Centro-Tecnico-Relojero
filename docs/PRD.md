@@ -1,6 +1,6 @@
 # ⌚ PRD: Sistema Administrativo RELOJERÍA IA
 
-**Estado:** Versión 2.1 (Analítica Pro & Auditoría Forense)  
+**Estado:** Versión 2.2 (POS, Analítica Pro & Auditoría Forense, Enrutamiento Bancario)  
 **Documento de Referencia:** [Matriz de Trazabilidad (RTM)](file:///d:/Proyecto%20IA/RELOJERIA%20IA/docs/RTM.md)
 
 ---
@@ -40,7 +40,9 @@ Digitalizar y automatizar la gestión operativa de CTR Relojería, resolviendo l
 | **REQ-FUN-017** | Análisis Temporal Comparativo | Visualización de variaciones porcentuales de ingresos/gastos comparando el mes actual con el anterior. | Admin | Alta | Indicadores de crecimiento/decrecimiento automático en el panel lateral de auditoría. |
 | **REQ-FUN-018** | Filtro Mensual de BI | Navegación histórica por mes y año para auditoría de rendimiento financiero. | Admin | Alta | Selector de mes/año funcional que recalcula todo el dashboard de reportes instantáneamente. |
 | **REQ-FUN-019** | Seguridad de Operación | Bloqueo preventivo de reparaciones y abonos si no existe una sesión de caja abierta. | Recepción | Crítica | El sistema impide guardar cambios financieros si detecta que la caja está cerrada, forzando la apertura de jornada. |
-
+| **REQ-FUN-020** | Sistema POS en Caja | Implementación de carrito de compras, selección de inventario y generación de comprobantes detallados en caja. | Recepción | Alta | Carrito funcional descontando stock y enlazando movimiento de caja con `caja_movimientos_detalles`. |
+| **REQ-FUN-021** | Enrutamiento Bancario Directo | Capacidad de seleccionar cuenta de banco destino (ej. Banpro) en cobros de reparación. | Recepción | Alta | Los pagos van directo a la cuenta seleccionada sin paso intermedio manual. |
+| **REQ-FUN-022** | Exportador PDF P&L | Botón interactivo para exportar el balance de ingresos y egresos de caja a formato PDF estructurado. | Admin | Media | Generación de PDF con desglose forense y artículos del turno. |
 ### 3.2. Requerimientos No Funcionales (NFC)
 | ID | Nombre | Descripción | Actores | Prioridad | Criterios de Aceptación |
 | :--- | :--- | :--- | :--- | :---: | :--- |

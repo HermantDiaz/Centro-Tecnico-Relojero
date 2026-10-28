@@ -66,11 +66,13 @@ El sistema implementa una capa de **Business Intelligence (BI)** diseñada para 
 
 1.  **Drill-Down Recursivo**: Las consultas a movimientos de caja integran un *join* con `caja_movimientos_detalles`. La UI utiliza un patrón de **Lazy Drill-down** donde el detalle de artículos vendidos se renderiza mediante un componente de expansión que solo procesa datos cuando el usuario interactúa.
 2.  **Analítica Temporal Comparativa**: El motor de reportes calcula automáticamente deltas porcentuales (crecimiento/decrecimiento) comparando los agregados del periodo actual contra el anterior (ej. Mayo vs Abril), permitiendo detectar fugas de capital o picos de ventas instantáneamente.
-3.  **Trazabilidad de Inventario-Reparación**: Se establece un vínculo relacional entre el stock y el taller. Al aplicar un insumo a una reparación, el sistema garantiza la atomicidad de la operación: se descuenta el stock, se aumenta el costo de la reparación y se genera el registro contable en un solo flujo.
+3.  **Trazabilidad de Inventario-Reparación y POS**: Se establece un vínculo relacional entre el stock, el taller y la caja. Al aplicar un insumo a una reparación o venderlo mediante el **Sistema POS de Caja** (con carrito de compras), el sistema garantiza la atomicidad de la operación: se descuenta el stock, se genera el comprobante detallado y se registra el movimiento en un solo flujo.
+4.  **Auditoría Forense de Turnos**: El reporte P&L permite exportación a PDF y proporciona una bandeja de recibos y auditoría detallada de todos los artículos y métodos de pago utilizados en cada turno de caja.
+5.  **Enrutamiento Bancario Directo**: Pagos pueden ser ruteados directamente a bancos específicos (ej. Banpro) durante la entrega final, evadiendo transferencias manuales post-entrega.
 
 ## 🛡️ Integridad Transaccional Avanzada
 - **Bloqueo por Sesión de Caja**: Las operaciones financieras en el taller (reparaciones/abonos) están condicionadas al estado global de la caja. El sistema consulta el hook `useCaja` para verificar si existe una jornada activa antes de permitir persistir cambios, mitigando descuadres por operaciones "fuera de turno".
 - **Compensación de Anulaciones**: Las anulaciones de movimientos monetarios generan transacciones reversas (+ y -) de compensación antes de eliminaciones absolutas, manteniendo la integridad del libro contable.
 
 ---
-*Última revisión técnica: Mayo 2026*
+*Última revisión técnica: Junio 2026*
