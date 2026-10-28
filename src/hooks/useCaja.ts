@@ -198,8 +198,45 @@ export const useCaja = () => {
   const addMovimiento = async (mov: Omit<CajaMovimiento, 'id' | 'created_at' | 'sesion_id' | 'comision_pos'>, detalles?: MovimientoDetalle[]) => {
     if (!session) throw new Error('No hay una caja abierta');
 
+    const montoNum = Number(mov.monto);
+    if (isNaN(montoNum) || montoNum <= 0) {
+      throw new Error('El monto del movimiento debe ser mayor a 0');
+    }
+
+    // VALIDACIÓN ESTRICTA DE SALDOS (EFECTIVO Y BANCOS):
+    // Impide que cualquier egreso genere saldos negativos en efectivo físico o cuentas bancarias.
+    if (mov.tipo === 'egreso') {
+      // 1. Si es Efectivo: validar que la gaveta de la sesión abierta tenga fondos suficientes
+      if (mov.metodo_pago === 'Efectivo') {
+        const { data: sesionActual } = await supabase
+          .from('caja_sesiones')
+          .select('monto_cierre_esperado')
+          .eq('id', session.id)
+          .single();
+
+        const disponibleEfectivo = sesionActual ? Number(sesionActual.monto_cierre_esperado) : Number(session.monto_cierre_esperado);
+        if (montoNum > disponibleEfectivo) {
+          throw new Error(`Fondos insuficientes en Efectivo: Intentas egresar $${montoNum.toFixed(2)}, pero solo hay $${disponibleEfectivo.toFixed(2)} disponibles en la gaveta física.`);
+        }
+      }
+
+      // 2. Si es Banco (BAC, LAFISE, BANPRO) o cuenta en tesorería: validar saldo disponible en cuenta
+      const { data: cuentaTesoreria } = await supabase
+        .from('tesoreria_cuentas')
+        .select('saldo, nombre')
+        .eq('nombre', mov.metodo_pago)
+        .maybeSingle();
+
+      if (cuentaTesoreria) {
+        const saldoDisponible = Number(cuentaTesoreria.saldo);
+        if (montoNum > saldoDisponible) {
+          throw new Error(`Fondos insuficientes en ${cuentaTesoreria.nombre}: Intentas egresar $${montoNum.toFixed(2)}, pero el saldo disponible en cuenta es de $${saldoDisponible.toFixed(2)}.`);
+        }
+      }
+    }
+
     // Lógica de comisión POS (4%)
-    const comision_pos = mov.metodo_pago === 'POS' && mov.tipo === 'ingreso' ? (Number(mov.monto) * 0.04) : 0;
+    const comision_pos = mov.metodo_pago === 'POS' && mov.tipo === 'ingreso' ? (montoNum * 0.04) : 0;
 
     const { data, error } = await supabase
       .from('caja_movimientos')
@@ -235,7 +272,16 @@ export const useCaja = () => {
     // Los pagos por banco/POS no entran físicamente a la gaveta.
     if (mov.metodo_pago === 'Efectivo') {
         const impactoMonto = mov.tipo === 'ingreso' ? (Number(mov.monto) - comision_pos) : -Number(mov.monto);
-        const nuevoEsperado = session.monto_cierre_esperado + impactoMonto;
+        
+        // Consultar el valor actual directo de la sesión en BD para evitar desfases de memoria
+        const { data: sesionActual } = await supabase
+          .from('caja_sesiones')
+          .select('monto_cierre_esperado')
+          .eq('id', session.id)
+          .single();
+
+        const baseEsperado = sesionActual ? Number(sesionActual.monto_cierre_esperado) : Number(session.monto_cierre_esperado);
+        const nuevoEsperado = baseEsperado + impactoMonto;
         
         await supabase
           .from('caja_sesiones')

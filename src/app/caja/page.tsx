@@ -1,9 +1,10 @@
 "use client";
 
-import { useEffect, useState, useMemo, useCallback, Fragment } from "react";
+import { useEffect, useState, useMemo, useCallback, useRef, Fragment } from "react";
 import { useAuth } from "@/components/AuthProvider";
 import { useCaja, CajaMovimiento } from "@/hooks/useCaja";
 import { supabase } from "@/lib/supabase";
+import { filtrarMovimientosValidos } from "@/lib/finanzasUtils";
 import { 
   Wallet, 
   ArrowUpRight, 
@@ -126,6 +127,22 @@ export default function FinanzasPage() {
   const [cartPagos, setCartPagos] = useState<{metodo: typeof METODOS_PAGO[number], monto: number, referencia: string}[]>([]);
   const [busquedaProducto, setBusquedaProducto] = useState("");
 
+  // Prevenir dobles clics y peticiones concurrentes (In-Flight Ref Lock + State)
+  const isSubmittingIngresoRef = useRef(false);
+  const [isSubmittingIngreso, setIsSubmittingIngreso] = useState(false);
+
+  const isSubmittingGastoRef = useRef(false);
+  const [isSubmittingGasto, setIsSubmittingGasto] = useState(false);
+
+  const isSubmittingTrasladoRef = useRef(false);
+  const [isSubmittingTraslado, setIsSubmittingTraslado] = useState(false);
+
+  const isAnulandoRef = useRef(false);
+  const [anulandoId, setAnulandoId] = useState<string | null>(null);
+
+  const isSubmittingCierreRef = useRef(false);
+  const [isSubmittingCierre, setIsSubmittingCierre] = useState(false);
+
   const fetchData = useCallback(async () => {
     // 1. Movimientos
     if (session?.id) {
@@ -195,31 +212,7 @@ export default function FinanzasPage() {
   }, [activeTab]);
 
   const movimientosValidos = useMemo(() => {
-      const movs = [...movimientos].sort((a,b) => new Date(a.created_at || '').getTime() - new Date(b.created_at || '').getTime());
-      const toRemove = new Set<string>();
-      
-      const anulaciones = movs.filter(m => m.concepto?.startsWith('ANULACIÓN: '));
-      
-      anulaciones.forEach(anul => {
-          const originalConcepto = anul.concepto!.replace('ANULACIÓN: ', '');
-          const originalTipo = anul.tipo === 'ingreso' ? 'egreso' : 'ingreso';
-          const originalMonto = anul.monto;
-          
-          const target = movs.find(m => 
-              m.tipo === originalTipo && 
-              Number(m.monto) === Number(originalMonto) && 
-              m.concepto === originalConcepto && 
-              new Date(m.created_at || '') <= new Date(anul.created_at || '') &&
-              !toRemove.has(m.id)
-          );
-          
-          if (target) {
-              toRemove.add(target.id);
-              toRemove.add(anul.id);
-          }
-      });
-      
-      return movs.filter(m => !toRemove.has(m.id));
+      return filtrarMovimientosValidos(movimientos);
   }, [movimientos]);
 
   const stats = useMemo(() => {
@@ -359,11 +352,16 @@ export default function FinanzasPage() {
   };
 
   const handleAddIngreso = async () => {
+    if (isSubmittingIngresoRef.current) return;
+
     if (cartItems.length === 0) {
       alert("El carrito está vacío");
       return;
     }
     
+    isSubmittingIngresoRef.current = true;
+    setIsSubmittingIngreso(true);
+
     try {
       // 1. Resolver Cliente
       let finalClienteId = null;
@@ -461,14 +459,44 @@ export default function FinanzasPage() {
       setBusquedaProducto("");
       fetchData();
       await logEvent('CREADO', 'Finanzas', `Venta POS por $${totalFinal}. Concepto: ${conceptoResumen}`);
-    } catch (e: any) { alert(e.message); }
+    } catch (e: any) { 
+      alert(e.message); 
+    } finally {
+      isSubmittingIngresoRef.current = false;
+      setIsSubmittingIngreso(false);
+    }
   };
 
   const handleAddGasto = async () => {
+    if (isSubmittingGastoRef.current) return;
+    const montoGasto = Number(nuevoGasto.monto);
+    if (!nuevoGasto.monto || isNaN(montoGasto) || montoGasto <= 0 || !nuevoGasto.concepto.trim()) {
+      alert("Por favor ingresa un monto y un concepto válidos.");
+      return;
+    }
+
+    // Validación preventiva de saldo disponible (Efectivo y Bancos)
+    if (nuevoGasto.metodo_pago === 'Efectivo') {
+      const disponible = Number(session?.monto_cierre_esperado || 0);
+      if (montoGasto > disponible) {
+        alert(`FONDOS INSUFICIENTES EN EFECTIVO:\n\nIntentas egresar $${montoGasto.toFixed(2)}, pero solo hay $${disponible.toFixed(2)} disponibles en la gaveta física.`);
+        return;
+      }
+    } else {
+      const cuentaOrigen = cuentas.find(c => c.nombre === nuevoGasto.metodo_pago);
+      const disponible = Number(cuentaOrigen?.saldo || 0);
+      if (montoGasto > disponible) {
+        alert(`FONDOS INSUFICIENTES EN ${nuevoGasto.metodo_pago}:\n\nIntentas egresar $${montoGasto.toFixed(2)}, pero el saldo disponible en ${nuevoGasto.metodo_pago} es de $${disponible.toFixed(2)}.`);
+        return;
+      }
+    }
+
+    isSubmittingGastoRef.current = true;
+    setIsSubmittingGasto(true);
     try {
       await addMovimiento({
         tipo: 'egreso',
-        monto: Number(nuevoGasto.monto),
+        monto: montoGasto,
         utilidad_neta: 0,
         concepto: nuevoGasto.concepto,
         categoria: nuevoGasto.categoria,
@@ -480,15 +508,45 @@ export default function FinanzasPage() {
       setIsGastoModalOpen(false);
       setNuevoGasto({ monto: "", concepto: "", categoria: "Otros", subcategoria_id: "", metodo_pago: "Efectivo", referencia_bancaria: "" });
       fetchData();
-    } catch (e: any) { alert(e.message); }
+    } catch (e: any) { 
+      alert(e.message); 
+    } finally {
+      isSubmittingGastoRef.current = false;
+      setIsSubmittingGasto(false);
+    }
   };
 
   const handleTraslado = async () => {
+      if (isSubmittingTrasladoRef.current) return;
+      const montoTraslado = Number(nuevoTraslado.monto);
+      if (!nuevoTraslado.monto || isNaN(montoTraslado) || montoTraslado <= 0) {
+        alert("Por favor ingresa un monto válido.");
+        return;
+      }
+      if (nuevoTraslado.desde === nuevoTraslado.hacia) {
+          alert("No puedes trasladar a la misma cuenta.");
+          return;
+      }
+
+      // Validación preventiva de saldo disponible en cuenta origen
+      if (nuevoTraslado.desde === 'Efectivo') {
+        const disponible = Number(session?.monto_cierre_esperado || 0);
+        if (montoTraslado > disponible) {
+          alert(`FONDOS INSUFICIENTES EN EFECTIVO:\n\nIntentas trasladar $${montoTraslado.toFixed(2)}, pero solo hay $${disponible.toFixed(2)} disponibles en la gaveta física.`);
+          return;
+        }
+      } else {
+        const cuentaOrigen = cuentas.find(c => c.nombre === nuevoTraslado.desde);
+        const disponible = Number(cuentaOrigen?.saldo || 0);
+        if (montoTraslado > disponible) {
+          alert(`FONDOS INSUFICIENTES EN ${nuevoTraslado.desde}:\n\nIntentas trasladar $${montoTraslado.toFixed(2)}, pero el saldo disponible en ${nuevoTraslado.desde} es de $${disponible.toFixed(2)}.`);
+          return;
+        }
+      }
+
+      isSubmittingTrasladoRef.current = true;
+      setIsSubmittingTraslado(true);
       try {
-          if (nuevoTraslado.desde === nuevoTraslado.hacia) {
-              alert("No puedes trasladar a la misma cuenta.");
-              return;
-          }
           // 1. Salida
           await addMovimiento({
               tipo: 'egreso',
@@ -514,29 +572,45 @@ export default function FinanzasPage() {
         setIsTrasladoModalOpen(false);
         setNuevoTraslado({ monto: "", desde: "Efectivo", hacia: "BAC", referencia: "" });
         fetchData();
-      } catch (e: any) { alert(e.message); }
+      } catch (e: any) { 
+        alert(e.message); 
+      } finally {
+        isSubmittingTrasladoRef.current = false;
+        setIsSubmittingTraslado(false);
+      }
   };
 
   const handleCloseCaja = async () => {
+    if (isSubmittingCierreRef.current) return;
     if (!session) return;
     const real = Number(montoCierreReal);
     if (real < session.monto_cierre_esperado && !notasCierre.trim()) {
         alert("ALERTA DE DESCUADRE: El dinero físico es menor al teórico. Debes ingresar una Nota/Motivo para justificar el faltante ante auditoría.");
         return;
     }
+    isSubmittingCierreRef.current = true;
+    setIsSubmittingCierre(true);
     try {
       await closeCaja(session.id, real, notasCierre);
       await logEvent('CIERRE_CAJA', 'Finanzas', `Cierre de caja ejecutado. Esperado: $${session.monto_cierre_esperado}. Real: $${montoCierreReal}. ${notasCierre ? `Nota: ${notasCierre}` : ''}`);
       setIsCierreModalOpen(false);
       setNotasCierre("");
       fetchData();
-    } catch (e: any) { alert(e.message); }
+    } catch (e: any) { 
+      alert(e.message); 
+    } finally {
+      isSubmittingCierreRef.current = false;
+      setIsSubmittingCierre(false);
+    }
   };
 
   const handleAnularMovimiento = async (m: CajaMovimiento) => {
+    if (isAnulandoRef.current) return;
     const confirmacion = window.confirm(`¿Estás seguro de anular el movimiento de $${m.monto}?\nConcepto: ${m.concepto}\n\nEsto creará un movimiento reverso para anular el efecto en la tesorería.`);
     if (!confirmacion) return;
     
+    isAnulandoRef.current = true;
+    setAnulandoId(m.id);
     try {
         await addMovimiento({
             tipo: m.tipo === 'ingreso' ? 'egreso' : 'ingreso',
@@ -589,6 +663,9 @@ export default function FinanzasPage() {
         fetchData();
     } catch (e: any) {
         alert(e.message);
+    } finally {
+        isAnulandoRef.current = false;
+        setAnulandoId(null);
     }
   };
 
@@ -832,11 +909,14 @@ export default function FinanzasPage() {
                                                 )}
                                                 {!m.concepto.startsWith('ANULACIÓN:') && !m.es_traslado && (
                                                     <button 
+                                                        disabled={anulandoId === m.id}
                                                         onClick={() => handleAnularMovimiento(m)}
-                                                        className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-rose-50 hover:bg-rose-100 dark:bg-rose-900/20 dark:hover:bg-rose-900/40 text-rose-600 dark:text-rose-400 rounded-lg text-[9px] font-black uppercase tracking-widest transition-colors"
+                                                        className={`inline-flex items-center gap-1.5 px-3 py-1.5 bg-rose-50 hover:bg-rose-100 dark:bg-rose-900/20 dark:hover:bg-rose-900/40 text-rose-600 dark:text-rose-400 rounded-lg text-[9px] font-black uppercase tracking-widest transition-colors ${
+                                                            anulandoId === m.id ? 'opacity-50 cursor-not-allowed' : ''
+                                                        }`}
                                                         title="Anular Movimiento (Crear Reversión)"
                                                     >
-                                                        <Ban className="w-3.5 h-3.5" />
+                                                        <Ban className={`w-3.5 h-3.5 ${anulandoId === m.id ? 'animate-spin' : ''}`} />
                                                     </button>
                                                 )}
                                            </div>
@@ -1225,7 +1305,15 @@ export default function FinanzasPage() {
                               )}
                           </div>
 
-                          <button onClick={handleAddIngreso} className="w-full py-3 bg-black dark:bg-emerald-500 text-white rounded-2xl font-black text-xs uppercase tracking-[0.2em] shadow-lg active:scale-95 transition-all">Cobrar Ticket</button>
+                          <button 
+                            disabled={isSubmittingIngreso}
+                            onClick={handleAddIngreso} 
+                            className={`w-full py-3 bg-black dark:bg-emerald-500 text-white rounded-2xl font-black text-xs uppercase tracking-[0.2em] shadow-lg transition-all ${
+                              isSubmittingIngreso ? 'opacity-50 cursor-not-allowed scale-95' : 'active:scale-95'
+                            }`}
+                          >
+                            {isSubmittingIngreso ? 'Procesando Cobro...' : 'Cobrar Ticket'}
+                          </button>
                       </div>
                   </div>
               </div>
@@ -1246,7 +1334,7 @@ export default function FinanzasPage() {
                         <p className="text-[10px] font-bold text-neutral-400 uppercase tracking-widest mt-1">Salida de flujo operativo</p>
                       </div>
                   </div>
-                  <div className="grid grid-cols-2 gap-6 mb-6">
+                  <div className="grid grid-cols-2 gap-6 mb-4">
                       <div>
                           <label className="block text-[10px] font-black uppercase tracking-widest text-neutral-400 mb-3 ml-1">Monto del Gasto ($)</label>
                           <input type="number" className="w-full bg-neutral-50 dark:bg-neutral-800 border-none rounded-2xl p-5 font-black text-3xl italic text-rose-600" value={nuevoGasto.monto} onChange={(e) => setNuevoGasto({...nuevoGasto, monto: e.target.value})} />
@@ -1258,6 +1346,28 @@ export default function FinanzasPage() {
                           </select>
                       </div>
                   </div>
+                  {(() => {
+                    const saldoDisp = nuevoGasto.metodo_pago === 'Efectivo'
+                      ? Number(session?.monto_cierre_esperado || 0)
+                      : Number(cuentas.find(c => c.nombre === nuevoGasto.metodo_pago)?.saldo || 0);
+                    const montoActual = Number(nuevoGasto.monto || 0);
+                    const esInsuficiente = montoActual > saldoDisp;
+                    return (
+                      <div className={`mb-6 p-4 rounded-2xl border text-xs flex items-center justify-between transition-colors ${
+                        esInsuficiente 
+                          ? 'bg-rose-50 border-rose-200 dark:bg-rose-950/30 dark:border-rose-900/40 text-rose-600 dark:text-rose-400' 
+                          : 'bg-neutral-50 border-neutral-100 dark:bg-neutral-800/40 dark:border-neutral-800 text-neutral-600 dark:text-neutral-400'
+                      }`}>
+                        <div className="flex items-center gap-2">
+                          <AlertCircle className={`w-4 h-4 ${esInsuficiente ? 'text-rose-500 animate-pulse' : 'text-neutral-400'}`} />
+                          <span className="font-bold text-[10px] uppercase tracking-wider">
+                            {esInsuficiente ? 'Saldo insuficiente en cuenta' : `Disponible en ${nuevoGasto.metodo_pago}`}
+                          </span>
+                        </div>
+                        <span className="font-black text-sm italic">${saldoDisp.toFixed(2)}</span>
+                      </div>
+                    );
+                  })()}
                   <div className="space-y-6">
                       <div className="grid grid-cols-2 gap-4">
                         <div>
@@ -1284,7 +1394,15 @@ export default function FinanzasPage() {
                       </div>
                       <div className="flex gap-4 pt-4">
                           <button onClick={() => setIsGastoModalOpen(false)} className="flex-1 py-4 text-xs font-black text-neutral-400 uppercase tracking-widest">Cancelar</button>
-                          <button onClick={handleAddGasto} className="flex-2 px-10 py-4 bg-rose-600 text-white rounded-[2rem] font-black text-xs uppercase tracking-[0.2em] shadow-2xl shadow-rose-600/20 active:scale-95 transition-all">Sincronizar Gasto</button>
+                          <button 
+                            disabled={isSubmittingGasto}
+                            onClick={handleAddGasto} 
+                            className={`flex-2 px-10 py-4 bg-rose-600 text-white rounded-[2rem] font-black text-xs uppercase tracking-[0.2em] shadow-2xl shadow-rose-600/20 transition-all ${
+                              isSubmittingGasto ? 'opacity-50 cursor-not-allowed scale-95' : 'active:scale-95'
+                            }`}
+                          >
+                            {isSubmittingGasto ? 'Sincronizando...' : 'Sincronizar Gasto'}
+                          </button>
                       </div>
                   </div>
               </div>
@@ -1318,6 +1436,28 @@ export default function FinanzasPage() {
                               </select>
                           </div>
                       </div>
+                      {(() => {
+                        const saldoDisp = nuevoTraslado.desde === 'Efectivo'
+                          ? Number(session?.monto_cierre_esperado || 0)
+                          : Number(cuentas.find(c => c.nombre === nuevoTraslado.desde)?.saldo || 0);
+                        const montoActual = Number(nuevoTraslado.monto || 0);
+                        const esInsuficiente = montoActual > saldoDisp;
+                        return (
+                          <div className={`p-4 rounded-2xl border text-xs flex items-center justify-between transition-colors ${
+                            esInsuficiente 
+                              ? 'bg-rose-50 border-rose-200 dark:bg-rose-950/30 dark:border-rose-900/40 text-rose-600 dark:text-rose-400' 
+                              : 'bg-neutral-50 border-neutral-100 dark:bg-neutral-800/40 dark:border-neutral-800 text-neutral-600 dark:text-neutral-400'
+                          }`}>
+                            <div className="flex items-center gap-2">
+                              <AlertCircle className={`w-4 h-4 ${esInsuficiente ? 'text-rose-500 animate-pulse' : 'text-neutral-400'}`} />
+                              <span className="font-bold text-[10px] uppercase tracking-wider">
+                                {esInsuficiente ? 'Saldo insuficiente para trasladar' : `Disponible en ${nuevoTraslado.desde}`}
+                              </span>
+                            </div>
+                            <span className="font-black text-sm italic">${saldoDisp.toFixed(2)}</span>
+                          </div>
+                        );
+                      })()}
                       <div>
                           <label className="block text-[9px] font-black text-neutral-400 uppercase mb-3 ml-1">Monto Neto ($)</label>
                           <input type="number" className="w-full bg-neutral-100 dark:bg-neutral-800 border-none rounded-3xl p-6 text-4xl font-black text-center italic" value={nuevoTraslado.monto} onChange={(e) => setNuevoTraslado({...nuevoTraslado, monto: e.target.value})} />
@@ -1326,7 +1466,15 @@ export default function FinanzasPage() {
                           <label className="block text-[9px] font-black text-neutral-400 uppercase mb-3 ml-1">Numero de Referencia / Depósito</label>
                           <input placeholder="#123456789" className="w-full bg-neutral-100 dark:bg-neutral-800 border-none rounded-2xl p-5 font-black text-center text-sm" value={nuevoTraslado.referencia} onChange={(e) => setNuevoTraslado({...nuevoTraslado, referencia: e.target.value})} />
                       </div>
-                      <button onClick={handleTraslado} className="w-full py-6 bg-black dark:bg-white text-white dark:text-black rounded-[2rem] font-black text-[10px] uppercase tracking-[0.3em] shadow-2xl active:scale-95 transition-all">Ejecutar Traslado</button>
+                      <button 
+                        disabled={isSubmittingTraslado}
+                        onClick={handleTraslado} 
+                        className={`w-full py-6 bg-black dark:bg-white text-white dark:text-black rounded-[2rem] font-black text-[10px] uppercase tracking-[0.3em] shadow-2xl transition-all ${
+                          isSubmittingTraslado ? 'opacity-50 cursor-not-allowed scale-95' : 'active:scale-95'
+                        }`}
+                      >
+                        {isSubmittingTraslado ? 'Ejecutando Traslado...' : 'Ejecutar Traslado'}
+                      </button>
                       <button onClick={() => setIsTrasladoModalOpen(false)} className="w-full py-2 text-[9px] font-black text-neutral-400 uppercase tracking-widest">Cancelar</button>
                   </div>
               </div>
@@ -1388,7 +1536,15 @@ export default function FinanzasPage() {
                       )}
 
                       <div className="pt-4 space-y-3">
-                        <button onClick={handleCloseCaja} className="w-full py-5 bg-black dark:bg-white text-white dark:text-black rounded-[2rem] font-black text-xs uppercase tracking-[0.2em] shadow-2xl active:scale-95 transition-all">Finalizar y Guardar</button>
+                        <button 
+                          disabled={isSubmittingCierre}
+                          onClick={handleCloseCaja} 
+                          className={`w-full py-5 bg-black dark:bg-white text-white dark:text-black rounded-[2rem] font-black text-xs uppercase tracking-[0.2em] shadow-2xl transition-all ${
+                            isSubmittingCierre ? 'opacity-50 cursor-not-allowed scale-95' : 'active:scale-95'
+                          }`}
+                        >
+                          {isSubmittingCierre ? 'Finalizando Cierre...' : 'Finalizar y Guardar'}
+                        </button>
                         <button onClick={() => setIsCierreModalOpen(false)} className="w-full py-2 text-[10px] font-black text-neutral-400 uppercase tracking-widest">Seguir Operando</button>
                       </div>
                   </div>

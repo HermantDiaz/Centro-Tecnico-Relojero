@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { supabase } from "@/lib/supabase";
 import { useAuth } from "@/components/AuthProvider";
+import { filtrarMovimientosValidos } from "@/lib/finanzasUtils";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Clock, CheckCircle2, AlertTriangle, Calendar, Package, ArrowRight, Wrench, Plus } from "lucide-react";
@@ -92,13 +93,14 @@ export default function Dashboard() {
       const inicioMes = new Date(hoy.getFullYear(), hoy.getMonth(), 1).toISOString();
       const { data: movs } = await supabase
         .from('caja_movimientos')
-        .select('tipo, monto, concepto, es_traslado, created_at')
+        .select('id, tipo, monto, concepto, es_traslado, created_at')
         .gte('created_at', inicioMes);
 
       let ingresosMes = 0;
       let ingresosMesPasado = 0; // Opcional, pero para 0% lo dejaremos simulado o calculable
 
-      const movimientosMes = movs || [];
+      // Sincronizado con Reportes: descarta movimientos anulados y reversiones
+      const movimientosMes = filtrarMovimientosValidos(movs || []);
       const statsIngresos = new Map<string, number>();
       const statsEgresos = new Map<string, number>();
 
