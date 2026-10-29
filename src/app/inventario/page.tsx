@@ -1,9 +1,20 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 import { supabase } from "@/lib/supabase";
 import Link from "next/link";
 import { useAuth } from "@/components/AuthProvider";
+import Papa from "papaparse";
+import { 
+  Upload, 
+  Download, 
+  FileSpreadsheet, 
+  CheckCircle2, 
+  AlertTriangle, 
+  AlertCircle, 
+  X, 
+  RefreshCw
+} from "lucide-react";
 
 interface Producto {
   id: string;
@@ -60,6 +71,308 @@ export default function Inventario() {
   });
 
   const { user, rol, sessionReady, lastFocusAt } = useAuth();
+
+  // Estados para importación masiva CSV
+  const [isImportModalOpen, setIsImportModalOpen] = useState(false);
+  const [importing, setImporting] = useState(false);
+  const [importProgress, setImportProgress] = useState("");
+  const [parsedRows, setParsedRows] = useState<any[]>([]);
+  const [fileName, setFileName] = useState("");
+  const [alertaStockDefecto, setAlertaStockDefecto] = useState(true);
+  const [stockMinimoDefecto, setStockMinimoDefecto] = useState(5);
+  const [autoCrearCategorias, setAutoCrearCategorias] = useState(true);
+  const [skipDuplicates, setSkipDuplicates] = useState(true);
+  const [isDragging, setIsDragging] = useState(false);
+  const dragCounterRef = useRef(0);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
+
+  const normalizeEstado = (val: any): "Nuevo" | "Usado" | "Restaurado" | "N/A" => {
+    if (!val || typeof val !== "string") return "Nuevo";
+    const clean = val.trim().toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+    if (clean === "nuevo" || clean === "nuevos" || clean === "new" || clean === "n") return "Nuevo";
+    if (clean === "usado" || clean === "usados" || clean === "used" || clean === "u" || clean === "segunda mano") return "Usado";
+    if (clean === "restaurado" || clean === "restaurados" || clean === "reparado" || clean === "refurbished" || clean === "r") return "Restaurado";
+    if (clean === "n/a" || clean === "na" || clean === "no aplica" || clean === "ninguno" || clean === "-") return "N/A";
+    return "Nuevo";
+  };
+
+  const normalizeKey = (key: string): string => {
+    return key
+      .toLowerCase()
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "")
+      .replace(/[^a-z0-9]/g, "")
+      .trim();
+  };
+
+  const parseNum = (val: any, fallback = 0) => {
+    if (val === null || val === undefined || val === "") return fallback;
+    if (typeof val === "number") return isNaN(val) ? fallback : val;
+    const cleanStr = String(val).replace(/[^0-9.,-]/g, "").replace(",", ".");
+    const num = parseFloat(cleanStr);
+    return isNaN(num) ? fallback : num;
+  };
+
+  const resetImport = () => {
+    setParsedRows([]);
+    setFileName("");
+    setImportProgress("");
+    setIsDragging(false);
+    dragCounterRef.current = 0;
+    if (fileInputRef.current) fileInputRef.current.value = "";
+  };
+
+  const downloadTemplate = () => {
+    const headers = ["CODIGO / SKU", "NOMBRE", "MODELO", "MARCA", "CATEGORIA", "ESTADO", "P. COMPRA", "P. VENTA", "Stock Act."];
+    const sampleRows = [
+      ["EMP-06-12", "Empaque O-Ring 12mm x 0.6mm", "12mm", "Ruiha", "Empaques", "Nuevo", "0.72", "200.00", "50"],
+      ["EMP-07-28", "Empaque O-Ring 28mm x 0.7mm", "28mm", "Ruiha", "Empaques", "Nuevo", "0.85", "200.00", "40"],
+      ["CRIS-MIN-30", "Cristal Mineral Plano 30mm", "30.0mm", "Genérico", "Cristales", "Nuevo", "45.00", "250.00", "15"],
+      ["BAT-377", "Batería Óxido Plata 377", "SR626SW", "Renata", "Baterías", "Nuevo", "15.00", "120.00", "100"]
+    ];
+
+    const csvContent = "\uFEFF" + [headers.join(","), ...sampleRows.map(r => r.map(c => '"' + c.replace(/"/g, '""') + '"').join(","))].join("\n");
+    const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.setAttribute("href", url);
+    link.setAttribute("download", "plantilla_carga_inventario.csv");
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
+  const processFile = (file: File) => {
+    if (!file) return;
+
+    if (!file.name.toLowerCase().endsWith(".csv") && !file.type.includes("csv") && !file.type.includes("excel")) {
+      alert("Por favor selecciona o arrastra un archivo en formato .CSV");
+      return;
+    }
+
+    setFileName(file.name);
+    setImportProgress("");
+
+    Papa.parse(file, {
+      header: true,
+      skipEmptyLines: "greedy",
+      complete: (results) => {
+        const rawData = results.data as Record<string, any>[];
+        if (!rawData || rawData.length === 0) {
+          alert("El archivo CSV no contiene registros o está vacío.");
+          return;
+        }
+
+        const existingSkus = new Set(productos.map(p => p.codigo?.trim().toLowerCase()).filter(Boolean));
+        const seenInFile = new Set<string>();
+
+        const mapped = rawData.map((row, index) => {
+          const normalized: Record<string, any> = {};
+          for (const [k, v] of Object.entries(row)) {
+            normalized[normalizeKey(k)] = typeof v === "string" ? v.trim() : v;
+          }
+
+          // Soporta exactamente: CODIGO / SKU, NOMBRE, MODELO, MARCA, CATEGORIA, ESTADO, P. COMPRA, P. VENTA, Stock Act.
+          const codigo = normalized["codigosku"] || normalized["codigo"] || normalized["sku"] || normalized["cod"] || "";
+          const nombre = normalized["nombre"] || normalized["producto"] || normalized["descripcion"] || "";
+          const modelo = normalized["modelo"] || normalized["medida"] || "";
+          const marca = normalized["marca"] || normalized["fabricante"] || "Genérico";
+          const categoria = normalized["categoria"] || normalized["tipo"] || "General";
+          const estado = normalizeEstado(normalized["estado"]);
+          const precio_compra = parseNum(normalized["pcompra"] ?? normalized["preciocompra"] ?? normalized["costo"] ?? 0);
+          const precio_venta = parseNum(normalized["pventa"] ?? normalized["precioventa"] ?? normalized["precio"] ?? 0);
+          const stock_actual = Math.round(parseNum(normalized["stockact"] ?? normalized["stockactual"] ?? normalized["stock"] ?? normalized["cantidad"] ?? 0));
+          const stock_minimo_raw = normalized["stockminimo"] ?? normalized["stockmin"] ?? normalized["minimo"] ?? null;
+          const stock_minimo = stock_minimo_raw !== null && stock_minimo_raw !== "" ? Math.round(parseNum(stock_minimo_raw)) : null;
+
+          const skuLower = codigo.toLowerCase();
+          const isDuplicateInDb = codigo ? existingSkus.has(skuLower) : false;
+          const isDuplicateInFile = codigo ? seenInFile.has(skuLower) : false;
+          if (codigo) seenInFile.add(skuLower);
+
+          let issue = "";
+          if (!codigo) issue = "Falta SKU / Código";
+          else if (!nombre) issue = "Falta Nombre";
+          else if (isDuplicateInDb) issue = "SKU ya existe en base de datos";
+          else if (isDuplicateInFile) issue = "SKU repetido en este archivo";
+
+          const isValid = !!codigo && !!nombre && !isDuplicateInFile;
+
+          return {
+            rowNumber: index + 2,
+            codigo,
+            nombre,
+            modelo,
+            marca,
+            categoria,
+            estado,
+            precio_compra,
+            precio_venta,
+            stock_actual,
+            stock_minimo,
+            isValid,
+            isDuplicateInDb,
+            isDuplicateInFile,
+            issue
+          };
+        });
+
+        setParsedRows(mapped);
+      },
+      error: (err) => {
+        alert("Error al leer el archivo CSV: " + err.message);
+      }
+    });
+  };
+
+  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) processFile(file);
+  };
+
+  const handleDragEnter = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    dragCounterRef.current += 1;
+    if (e.dataTransfer.items && e.dataTransfer.items.length > 0) {
+      setIsDragging(true);
+    }
+  };
+
+  const handleDragOver = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    e.dataTransfer.dropEffect = "copy";
+  };
+
+  const handleDragLeave = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    dragCounterRef.current -= 1;
+    if (dragCounterRef.current <= 0) {
+      dragCounterRef.current = 0;
+      setIsDragging(false);
+    }
+  };
+
+  const handleDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    dragCounterRef.current = 0;
+    setIsDragging(false);
+    const file = e.dataTransfer.files?.[0];
+    if (file) {
+      processFile(file);
+    }
+  };
+
+  const handleExecuteImport = async () => {
+    if (parsedRows.length === 0) return;
+
+    const rowsToProcess = parsedRows.filter(r => {
+      if (!r.codigo || !r.nombre) return false;
+      if (r.isDuplicateInFile) return false;
+      if (r.isDuplicateInDb && skipDuplicates) return false;
+      return true;
+    });
+
+    if (rowsToProcess.length === 0) {
+      alert("No hay productos válidos para importar (todos tienen errores o SKUs duplicados).");
+      return;
+    }
+
+    setImporting(true);
+    setImportProgress("Sincronizando categorías...");
+
+    try {
+      // 1. Obtener y sincronizar categorías
+      const { data: catData, error: catErr } = await supabase.from("categorias").select("id, nombre");
+      if (catErr) throw catErr;
+
+      const categoryMap = new Map<string, string>();
+      (catData || []).forEach(c => {
+        categoryMap.set(c.nombre.trim().toLowerCase(), c.id);
+      });
+
+      // Identificar categorías nuevas a crear de manera limpia y sin duplicados
+      const missingCategoriesMap = new Map<string, string>();
+      rowsToProcess.forEach(r => {
+        const catNameTrimmed = r.categoria.trim();
+        const catKey = catNameTrimmed.toLowerCase();
+        if (catNameTrimmed && !categoryMap.has(catKey) && !missingCategoriesMap.has(catKey)) {
+          const formattedName = catNameTrimmed.charAt(0).toUpperCase() + catNameTrimmed.slice(1);
+          missingCategoriesMap.set(catKey, formattedName);
+        }
+      });
+
+      if (missingCategoriesMap.size > 0 && autoCrearCategorias) {
+        setImportProgress(`Creando ${missingCategoriesMap.size} categorías nuevas...`);
+        const toInsert = Array.from(missingCategoriesMap.values()).map(nombre => ({ nombre }));
+        const { data: newCats, error: newCatErr } = await supabase.from("categorias").insert(toInsert).select("id, nombre");
+        if (newCatErr) throw newCatErr;
+        (newCats || []).forEach(c => {
+          categoryMap.set(c.nombre.trim().toLowerCase(), c.id);
+        });
+      }
+
+      let defaultCatId = catData?.[0]?.id;
+      if (!defaultCatId && categoryMap.size > 0) {
+        defaultCatId = categoryMap.values().next().value;
+      }
+
+      // 2. Mapear payload final garantizando tipos y check constraints
+      const finalProducts = rowsToProcess.map(r => {
+        const catKey = r.categoria.trim().toLowerCase();
+        const categoria_id = categoryMap.get(catKey) || defaultCatId || null;
+
+        let finalStockMinimo = -1;
+        if (r.stock_minimo !== null && r.stock_minimo !== undefined) {
+          finalStockMinimo = r.stock_minimo;
+        } else if (alertaStockDefecto) {
+          finalStockMinimo = stockMinimoDefecto;
+        }
+
+        return {
+          codigo: r.codigo,
+          nombre: r.nombre,
+          marca: r.marca || "Genérico",
+          modelo: r.modelo || "-",
+          categoria_id,
+          estado: normalizeEstado(r.estado),
+          precio_compra: Math.max(0, Number(r.precio_compra) || 0),
+          precio_venta: Math.max(0, Number(r.precio_venta) || 0),
+          stock_actual: Math.max(0, Math.round(Number(r.stock_actual) || 0)),
+          stock_minimo: finalStockMinimo,
+          es_vendible: true
+        };
+      });
+
+      // 3. Batch insert en paquetes de 50
+      const BATCH_SIZE = 50;
+      const totalBatches = Math.ceil(finalProducts.length / BATCH_SIZE);
+      let insertedCount = 0;
+
+      for (let i = 0; i < totalBatches; i++) {
+        const batch = finalProducts.slice(i * BATCH_SIZE, (i + 1) * BATCH_SIZE);
+        setImportProgress(`Importando lote ${i + 1} de ${totalBatches} (${batch.length} productos)...`);
+
+        const { error: insertErr } = await supabase.from("inventario").insert(batch);
+        if (insertErr) throw insertErr;
+        insertedCount += batch.length;
+      }
+
+      setImportProgress("¡Completado!");
+      alert(`✅ ¡Importación exitosa! Se registraron ${insertedCount} productos correctamente.`);
+      setIsImportModalOpen(false);
+      resetImport();
+      fetchData();
+    } catch (err: any) {
+      console.error("Error al importar:", err);
+      alert("Error al importar productos: " + (err.message || "Error desconocido"));
+    } finally {
+      setImporting(false);
+    }
+  };
 
   useEffect(() => {
     // v10.8.5: Se utiliza user?.id como dependencia para evitar disparos por refresco de token.
@@ -307,12 +620,21 @@ export default function Inventario() {
           </div>
         </div>
         {rol !== 'tecnico' && (
-          <button 
-            onClick={() => { resetForm(); setIsModalOpen(true); }}
-            className="px-6 py-2.5 bg-black dark:bg-white text-white dark:text-black rounded-xl font-bold text-sm hover:scale-105 transition-all shadow-lg flex items-center gap-2"
-          >
-            <span>➕ Nuevo Producto</span>
-          </button>
+          <div className="flex flex-wrap items-center gap-3">
+            <button 
+              onClick={() => { resetImport(); setIsImportModalOpen(true); }}
+              className="px-5 py-2.5 bg-neutral-100 dark:bg-neutral-800 hover:bg-neutral-200 dark:hover:bg-neutral-700 text-neutral-800 dark:text-neutral-200 rounded-xl font-bold text-sm transition-all shadow-sm flex items-center gap-2 border border-neutral-200 dark:border-neutral-700 active:scale-95"
+            >
+              <Upload className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
+              <span>Importar CSV</span>
+            </button>
+            <button 
+              onClick={() => { resetForm(); setIsModalOpen(true); }}
+              className="px-6 py-2.5 bg-black dark:bg-white text-white dark:text-black rounded-xl font-bold text-sm hover:scale-105 transition-all shadow-lg flex items-center gap-2"
+            >
+              <span>➕ Nuevo Producto</span>
+            </button>
+          </div>
         )}
       </section>
 
@@ -630,7 +952,7 @@ export default function Inventario() {
             </div>
             <h3 className="text-2xl font-black text-neutral-900 dark:text-white mb-2 tracking-tight">¿Eliminar Producto?</h3>
             <p className="text-neutral-500 dark:text-neutral-400 text-sm mb-8 leading-relaxed">
-              Estás por eliminar <span className="font-black text-neutral-900 dark:text-white">"{productToDelete?.nombre}"</span>. Esta acción es definitiva y no podrá revertirse.
+              Estás por eliminar <span className="font-black text-neutral-900 dark:text-white">&quot;{productToDelete?.nombre}&quot;</span>. Esta acción es definitiva y no podrá revertirse.
             </p>
             <div className="flex flex-col gap-3">
               <button 
@@ -647,6 +969,300 @@ export default function Inventario() {
                 CANCELAR
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL IMPORTACION MASIVA CSV */}
+      {isImportModalOpen && (
+        <div className="fixed inset-0 bg-black/70 backdrop-blur-md z-[70] flex items-center justify-center p-4">
+          <div className="bg-white dark:bg-neutral-900 w-full max-w-5xl rounded-3xl p-6 md:p-8 border border-neutral-200 dark:border-neutral-800 shadow-2xl max-h-[90vh] flex flex-col overflow-hidden text-left animate-in zoom-in-95 duration-200">
+            
+            {/* Header del Modal */}
+            <div className="flex justify-between items-start pb-4 border-b border-neutral-100 dark:border-neutral-800 shrink-0 mb-4">
+              <div className="flex items-center gap-3">
+                <div className="p-3 bg-emerald-50 dark:bg-emerald-950/40 rounded-2xl border border-emerald-100 dark:border-emerald-900/50">
+                  <FileSpreadsheet className="w-6 h-6 text-emerald-600 dark:text-emerald-400" />
+                </div>
+                <div>
+                  <h2 className="text-xl font-black text-neutral-900 dark:text-white tracking-tight">
+                    Carga Masiva de Inventario
+                  </h2>
+                  <p className="text-xs text-neutral-500 dark:text-neutral-400 font-medium">
+                    Importa empaques, repuestos, cristales o relojes mediante archivo CSV o Excel.
+                  </p>
+                </div>
+              </div>
+              <button 
+                onClick={() => { if (!importing) setIsImportModalOpen(false); }}
+                className="text-neutral-400 hover:text-black dark:hover:text-white p-2 rounded-xl transition-all"
+                disabled={importing}
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Cuerpo del Modal con Scroll Interno Seguro */}
+            <div className="flex-1 min-h-0 overflow-y-auto pr-1 space-y-5 custom-scrollbar">
+              
+              {/* Zona de Subida y Plantilla */}
+              <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 p-4 bg-neutral-50 dark:bg-neutral-800/40 rounded-2xl border border-neutral-100 dark:border-neutral-800">
+                <div className="text-xs text-neutral-600 dark:text-neutral-300">
+                  <p className="font-bold">Columnas soportadas en tu archivo:</p>
+                  <p className="text-[11px] text-neutral-500 font-mono mt-0.5">
+                    CODIGO / SKU • NOMBRE • MODELO • MARCA • CATEGORIA • ESTADO • P. COMPRA • P. VENTA • Stock Act.
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={downloadTemplate}
+                  className="px-4 py-2 bg-white dark:bg-neutral-800 hover:bg-neutral-100 dark:hover:bg-neutral-700 text-neutral-700 dark:text-neutral-200 border border-neutral-200 dark:border-neutral-700 rounded-xl text-xs font-bold transition-all shadow-sm flex items-center justify-center gap-2 whitespace-nowrap active:scale-95 shrink-0"
+                >
+                  <Download className="w-3.5 h-3.5 text-blue-500" />
+                  <span>Descargar Plantilla CSV</span>
+                </button>
+              </div>
+
+              {/* Selector de Archivo / Drop Area */}
+              <input 
+                ref={fileInputRef}
+                type="file" 
+                accept=".csv, text/csv, application/vnd.ms-excel"
+                onChange={handleFileUpload}
+                className="hidden" 
+              />
+
+              <div 
+                onClick={() => fileInputRef.current?.click()}
+                onDragEnter={handleDragEnter}
+                onDragOver={handleDragOver}
+                onDragLeave={handleDragLeave}
+                onDrop={handleDrop}
+                className={`relative overflow-hidden border-2 border-dashed rounded-3xl p-8 text-center cursor-pointer transition-all duration-200 group ${
+                  isDragging 
+                    ? "border-emerald-500 bg-emerald-50/60 dark:bg-emerald-950/40 ring-4 ring-emerald-500/20" 
+                    : "border-neutral-300 dark:border-neutral-700 hover:border-emerald-500 dark:hover:border-emerald-500 bg-neutral-50/50 dark:bg-neutral-800/20"
+                }`}
+              >
+                {/* Overlay visual cuando se arrastra un archivo (pointer-events-none para que el mouse no pierda foco) */}
+                {isDragging && (
+                  <div className="absolute inset-0 z-20 bg-emerald-50/95 dark:bg-neutral-900/95 flex flex-col items-center justify-center p-4 pointer-events-none animate-in fade-in-50 duration-150">
+                    <Upload className="w-12 h-12 text-emerald-600 dark:text-emerald-400 animate-bounce mb-2" />
+                    <p className="text-base font-black text-emerald-600 dark:text-emerald-400">
+                      ¡Suelta tu archivo CSV aquí!
+                    </p>
+                    <p className="text-xs text-emerald-700 dark:text-emerald-300 font-medium">
+                      Detectaremos los datos y las columnas automáticamente
+                    </p>
+                  </div>
+                )}
+
+                {/* Contenido normal con pointer-events-none para evitar que los elementos hijos disparen dragleave */}
+                <div className="pointer-events-none select-none">
+                  {parsedRows.length === 0 ? (
+                    <div className="space-y-2">
+                      <Upload className="w-10 h-10 mx-auto text-neutral-400 group-hover:text-emerald-500 transition-colors mb-2" />
+                      <p className="text-sm font-bold text-neutral-800 dark:text-neutral-200">
+                        Arrastra y suelta tu archivo CSV aquí o <span className="text-emerald-600 dark:text-emerald-400 underline">haz clic para examinar</span>
+                      </p>
+                      <p className="text-xs text-neutral-400">
+                        Soporta archivos <strong>.CSV</strong> exportados desde Excel o Google Sheets
+                      </p>
+                    </div>
+                  ) : (
+                    <div className="flex flex-col sm:flex-row items-center justify-between gap-3 text-left">
+                      <div className="flex items-center gap-3">
+                        <CheckCircle2 className="w-6 h-6 text-emerald-600 dark:text-emerald-400 shrink-0" />
+                        <div>
+                          <p className="text-xs font-black text-neutral-900 dark:text-white">
+                            Archivo cargado: <span className="font-mono text-emerald-600 dark:text-emerald-400">{fileName}</span>
+                          </p>
+                          <p className="text-[11px] text-neutral-500 dark:text-neutral-400 font-medium">
+                            {parsedRows.length} filas detectadas • {parsedRows.filter(r => r.isValid && (!r.isDuplicateInDb || !skipDuplicates)).length} listas para importar
+                          </p>
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <span className="text-[11px] font-bold text-emerald-700 dark:text-emerald-300 bg-emerald-100 dark:bg-emerald-950/60 px-3 py-1.5 rounded-xl">
+                          Arrastra otro archivo o haz clic para cambiar
+                        </span>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* Opciones y Configuración de Importación */}
+              {parsedRows.length > 0 && (
+                <div className="space-y-4">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
+                    {/* Opción Alerta de Stock */}
+                    <div className="p-3 bg-neutral-50 dark:bg-neutral-800/50 rounded-2xl border border-neutral-100 dark:border-neutral-800 space-y-2">
+                      <label className="flex items-center gap-2 text-xs font-bold text-neutral-800 dark:text-neutral-200 cursor-pointer">
+                        <input 
+                          type="checkbox"
+                          checked={alertaStockDefecto}
+                          onChange={(e) => setAlertaStockDefecto(e.target.checked)}
+                          className="rounded accent-black dark:accent-white"
+                        />
+                        <span>Alerta de stock bajo</span>
+                      </label>
+                      {alertaStockDefecto && (
+                        <div className="flex items-center gap-2 text-[11px] text-neutral-500">
+                          <span>Umbral mínimo:</span>
+                          <input 
+                            type="number"
+                            min="0"
+                            value={stockMinimoDefecto}
+                            onChange={(e) => setStockMinimoDefecto(Math.max(0, parseInt(e.target.value) || 0))}
+                            className="w-16 bg-white dark:bg-neutral-900 border border-neutral-200 dark:border-neutral-700 rounded-lg px-2 py-1 text-xs font-bold text-center"
+                          />
+                          <span>unid.</span>
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Opción Categorías */}
+                    <div className="p-3 bg-neutral-50 dark:bg-neutral-800/50 rounded-2xl border border-neutral-100 dark:border-neutral-800 flex items-center">
+                      <label className="flex items-center gap-2 text-xs font-bold text-neutral-800 dark:text-neutral-200 cursor-pointer">
+                        <input 
+                          type="checkbox"
+                          checked={autoCrearCategorias}
+                          onChange={(e) => setAutoCrearCategorias(e.target.checked)}
+                          className="rounded accent-black dark:accent-white"
+                        />
+                        <span>Auto-crear categorías nuevas</span>
+                      </label>
+                    </div>
+
+                    {/* Opción Omitir Duplicados */}
+                    <div className="p-3 bg-neutral-50 dark:bg-neutral-800/50 rounded-2xl border border-neutral-100 dark:border-neutral-800 flex items-center">
+                      <label className="flex items-center gap-2 text-xs font-bold text-neutral-800 dark:text-neutral-200 cursor-pointer">
+                        <input 
+                          type="checkbox"
+                          checked={skipDuplicates}
+                          onChange={(e) => setSkipDuplicates(e.target.checked)}
+                          className="rounded accent-black dark:accent-white"
+                        />
+                        <span>Omitir SKUs ya existentes</span>
+                      </label>
+                    </div>
+                  </div>
+
+                  {/* Previsualización en Tabla con Contenedor Seguro */}
+                  <div className="border border-neutral-200 dark:border-neutral-800 rounded-2xl overflow-hidden bg-white dark:bg-neutral-900 shadow-sm">
+                    <div className="bg-neutral-100 dark:bg-neutral-800/80 px-4 py-2.5 flex justify-between items-center text-xs font-bold text-neutral-700 dark:text-neutral-300 border-b border-neutral-200 dark:border-neutral-800">
+                      <span>Previsualización ({parsedRows.length} filas detectadas)</span>
+                      <span className="text-[11px] text-neutral-500 dark:text-neutral-400 font-medium">Primeras 50 filas visibles</span>
+                    </div>
+                    <div className="max-h-60 overflow-y-auto overflow-x-auto custom-scrollbar text-xs">
+                      <table className="w-full text-left whitespace-nowrap">
+                        <thead className="bg-neutral-50 dark:bg-neutral-800 text-[10px] uppercase font-black tracking-wider text-neutral-500 dark:text-neutral-400 sticky top-0 z-10 border-b border-neutral-200 dark:border-neutral-800">
+                          <tr>
+                            <th className="py-2.5 px-3">#</th>
+                            <th className="py-2.5 px-3">Validación</th>
+                            <th className="py-2.5 px-3">CODIGO / SKU</th>
+                            <th className="py-2.5 px-3">NOMBRE</th>
+                            <th className="py-2.5 px-3">MODELO</th>
+                            <th className="py-2.5 px-3">MARCA</th>
+                            <th className="py-2.5 px-3">CATEGORIA</th>
+                            <th className="py-2.5 px-3">ESTADO</th>
+                            <th className="py-2.5 px-3">P. COMPRA</th>
+                            <th className="py-2.5 px-3">P. VENTA</th>
+                            <th className="py-2.5 px-3">Stock Act.</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-neutral-100 dark:divide-neutral-800 font-medium">
+                          {parsedRows.slice(0, 50).map((r, i) => (
+                            <tr key={i} className={!r.isValid || (r.isDuplicateInDb && skipDuplicates) ? "bg-amber-50/40 dark:bg-amber-950/20" : ""}>
+                              <td className="py-2 px-3 text-[10px] text-neutral-400">{r.rowNumber}</td>
+                              <td className="py-2 px-3">
+                                {r.isDuplicateInDb ? (
+                                  <span className="inline-flex items-center gap-1 text-[10px] font-bold text-amber-700 dark:text-amber-400 bg-amber-100 dark:bg-amber-950/60 px-2 py-0.5 rounded-full">
+                                    {skipDuplicates ? "Se omitirá (Existe)" : "Existe en BD"}
+                                  </span>
+                                ) : r.isDuplicateInFile ? (
+                                  <span className="inline-flex items-center gap-1 text-[10px] font-bold text-red-600 bg-red-100 dark:bg-red-950/60 px-2 py-0.5 rounded-full">
+                                    SKU Duplicado
+                                  </span>
+                                ) : !r.isValid ? (
+                                  <span className="inline-flex items-center gap-1 text-[10px] font-bold text-red-600 bg-red-100 dark:bg-red-950/60 px-2 py-0.5 rounded-full">
+                                    {r.issue}
+                                  </span>
+                                ) : (
+                                  <span className="inline-flex items-center gap-1 text-[10px] font-bold text-emerald-700 dark:text-emerald-400 bg-emerald-100 dark:bg-emerald-950/60 px-2 py-0.5 rounded-full">
+                                    ✓ Listo
+                                  </span>
+                                )}
+                              </td>
+                              <td className="py-2 px-3 font-mono font-bold text-neutral-900 dark:text-white">{r.codigo || "-"}</td>
+                              <td className="py-2 px-3 font-bold text-neutral-800 dark:text-neutral-200">{r.nombre}</td>
+                              <td className="py-2 px-3 text-neutral-500">{r.modelo || "-"}</td>
+                              <td className="py-2 px-3 text-neutral-500">{r.marca}</td>
+                              <td className="py-2 px-3">
+                                <span className="bg-neutral-100 dark:bg-neutral-800 px-2 py-0.5 rounded-md text-[10px] font-bold text-neutral-600 dark:text-neutral-400">
+                                  {r.categoria}
+                                </span>
+                              </td>
+                              <td className="py-2 px-3">
+                                <span className="bg-neutral-100 dark:bg-neutral-800 px-2 py-0.5 rounded-md text-[10px] font-bold text-neutral-700 dark:text-neutral-300">
+                                  {r.estado}
+                                </span>
+                              </td>
+                              <td className="py-2 px-3 font-mono text-neutral-600 dark:text-neutral-400">${r.precio_compra.toFixed(2)}</td>
+                              <td className="py-2 px-3 font-mono font-bold text-emerald-600 dark:text-emerald-400">${r.precio_venta.toFixed(2)}</td>
+                              <td className="py-2 px-3 font-bold text-neutral-900 dark:text-white">{r.stock_actual}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Footer con progreso y botones (Siempre fijo en la parte inferior) */}
+            <div className="pt-4 border-t border-neutral-100 dark:border-neutral-800 flex flex-col sm:flex-row items-center justify-between gap-3 shrink-0 mt-2 bg-white dark:bg-neutral-900">
+              <div className="text-xs text-neutral-500">
+                {importProgress && (
+                  <p className="flex items-center gap-2 font-bold text-emerald-600 animate-pulse">
+                    <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                    <span>{importProgress}</span>
+                  </p>
+                )}
+              </div>
+
+              <div className="flex items-center gap-3 w-full sm:w-auto">
+                <button
+                  type="button"
+                  onClick={() => setIsImportModalOpen(false)}
+                  disabled={importing}
+                  className="flex-1 sm:flex-none px-5 py-3 border border-neutral-200 dark:border-neutral-700 text-neutral-600 dark:text-neutral-400 rounded-xl text-xs font-bold uppercase tracking-wider hover:bg-neutral-50 dark:hover:bg-neutral-800 transition-all"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="button"
+                  onClick={handleExecuteImport}
+                  disabled={importing || parsedRows.length === 0}
+                  className="flex-1 sm:flex-none px-6 py-3 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white rounded-xl text-xs font-black uppercase tracking-wider shadow-lg shadow-emerald-600/20 active:scale-95 transition-all flex items-center justify-center gap-2"
+                >
+                  {importing ? (
+                    <>
+                      <RefreshCw className="w-4 h-4 animate-spin" />
+                      <span>Importando...</span>
+                    </>
+                  ) : (
+                    <>
+                      <Upload className="w-4 h-4" />
+                      <span>Importar a Inventario</span>
+                    </>
+                  )}
+                </button>
+              </div>
+            </div>
+
           </div>
         </div>
       )}

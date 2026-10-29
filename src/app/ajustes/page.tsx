@@ -6,7 +6,6 @@ import { useSettings, EmpresaConfig } from "@/hooks/useSettings";
 import { useTheme } from "next-themes";
 import { supabase } from "@/lib/supabase";
 import { Moon, Sun, Monitor, Save, Receipt, Wallet, Building2, Paintbrush, Plus, Trash2 } from "lucide-react";
-import Image from "next/image";
 
 interface Subcategoria {
   id: string;

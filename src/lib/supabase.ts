@@ -17,7 +17,7 @@ export const supabase = createClient(supabaseUrl, supabaseKey, {
     storage: atomicStorage,
     autoRefreshToken: true,
     detectSessionInUrl: true,
-    // @ts-ignore
+    // @ts-expect-error lockRefreshSession is an internal Supabase auth option
     lockRefreshSession: false,
   }
 });

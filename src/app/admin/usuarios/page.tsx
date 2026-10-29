@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { supabase } from "@/lib/supabase";
 import { useAuth } from "@/components/AuthProvider";
-import { ShieldAlert, Users, Activity, Terminal } from "lucide-react";
+import { ShieldAlert, Users, Terminal } from "lucide-react";
 
 interface Perfil {
   id: string;

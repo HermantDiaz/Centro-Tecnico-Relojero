@@ -1,8 +1,7 @@
 "use client";
 
 import React, { useRef } from 'react';
-import { Printer, Download, Share2, X } from 'lucide-react';
-import Image from 'next/image';
+import { Printer, Download, X } from 'lucide-react';
 import { useSettings } from '@/hooks/useSettings';
 
 interface ComprobanteProps {

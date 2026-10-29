@@ -97,7 +97,7 @@ export default function Dashboard() {
         .gte('created_at', inicioMes);
 
       let ingresosMes = 0;
-      let ingresosMesPasado = 0; // Opcional, pero para 0% lo dejaremos simulado o calculable
+      const ingresosMesPasado = 0; // Opcional, pero para 0% lo dejaremos simulado o calculable
 
       // Sincronizado con Reportes: descarta movimientos anulados y reversiones
       const movimientosMes = filtrarMovimientosValidos(movs || []);
@@ -377,7 +377,7 @@ export default function Dashboard() {
                         <span className="w-2 h-2 rounded-full bg-blue-500 shadow-[0_0_8px_rgba(59,130,246,0.5)]"></span>
                         <div>
                           <p className="text-sm font-bold text-neutral-900 dark:text-white">Producto Registrado</p>
-                          <p className="text-xs text-neutral-500">Se añadió "<span className="font-bold text-neutral-700 dark:text-neutral-300">{item.nombre}</span>" al inventario</p>
+                          <p className="text-xs text-neutral-500">Se añadió &quot;<span className="font-bold text-neutral-700 dark:text-neutral-300">{item.nombre}</span>&quot; al inventario</p>
                         </div>
                       </div>
                       <span className="text-xs font-medium text-neutral-400">

@@ -10,21 +10,18 @@ import {
   ArrowUpRight, 
   ArrowDownLeft, 
   History, 
-  Users, 
   Plus, 
   TrendingUp,
   Building2,
   ArrowRightLeft,
   AlertCircle,
-  CheckCircle2,
   Search,
   X,
   ExternalLink,
   Ban,
   Printer,
   FileText,
-  ChevronRight,
-  ChevronDown
+  ChevronRight
 } from "lucide-react";
 import { useRouter } from "next/navigation";
 import ComprobantePago from "@/components/caja/ComprobantePago";
