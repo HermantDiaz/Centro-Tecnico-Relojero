@@ -63,6 +63,8 @@ interface InsumoReparacion {
   inventario?: { 
     nombre: string;
     codigo: string;
+    modelo?: string;
+    marca?: string;
   };
 }
 
@@ -80,6 +82,8 @@ export default function ReparacionesPage() {
   const [selectedReparacionHistorial, setSelectedReparacionHistorial] = useState<Historico[]>([]);
   const [inventarioItems, setInventarioItems] = useState<any[]>([]);
   const [selectedReparacionInsumos, setSelectedReparacionInsumos] = useState<any[]>([]);
+  const [busquedaRepuesto, setBusquedaRepuesto] = useState("");
+  const [showRepuestoResults, setShowRepuestoResults] = useState(false);
   const [showCustomerSuggestions, setShowCustomerSuggestions] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState("");
@@ -258,11 +262,48 @@ export default function ReparacionesPage() {
     try {
       const { data } = await supabase
         .from('insumos_reparacion')
-        .select(`*, inventario(nombre, codigo)`)
+        .select(`*, inventario(nombre, codigo, modelo, marca)`)
         .eq('reparacion_id', reparacionId);
       setSelectedReparacionInsumos(data || []);
     } catch (e) {
       console.error("Error Insumos:", e);
+    }
+  }
+
+  async function handleAddInsumo(item: any) {
+    if (!selectedReparacion || !item) return;
+    const itemLabel = `${item.nombre}${item.modelo && item.modelo !== '-' ? ` (${item.modelo})` : ''}`;
+    const qty = prompt(`Cantidad de "${itemLabel}" a utilizar (Stock disponible: ${item.stock_actual}):`, "1");
+    if (!qty || parseInt(qty) <= 0) return;
+    
+    const numQty = parseInt(qty);
+    if (numQty > item.stock_actual) {
+      alert(`Stock insuficiente. Solo hay ${item.stock_actual} unidades disponibles.`);
+      return;
+    }
+
+    try {
+      // 1. Insert Insumo
+      await supabase.from('insumos_reparacion').insert({
+        reparacion_id: selectedReparacion.id,
+        insumo_id: item.id,
+        cantidad: numQty,
+        precio_unitario: item.precio_venta
+      });
+      // 2. Log History
+      const itemDesc = item.modelo && item.modelo !== '-' ? `${item.nombre} [${item.modelo}]` : item.nombre;
+      await createHistoryEntry(selectedReparacion.id, "Insumo Agregado", null, null, `Se agregó ${numQty}x ${itemDesc} (SKU: ${item.codigo || 'N/A'}).`);
+      // 3. Decrement Inventory
+      await supabase.from('inventario').update({ 
+        stock_actual: item.stock_actual - numQty 
+      }).eq('id', item.id);
+      
+      fetchInsumos(selectedReparacion.id);
+      fetchHistory(selectedReparacion.id);
+      setInventarioItems(prev => prev.map(p => p.id === item.id ? { ...p, stock_actual: p.stock_actual - numQty } : p));
+      alert("¡Repuesto agregado y stock actualizado!");
+    } catch (err: any) { 
+      alert(err.message); 
     }
   }
 
@@ -1266,49 +1307,116 @@ export default function ReparacionesPage() {
                   <div>
                     <p className="text-[10px] font-black uppercase tracking-widest border-b pb-2 mb-4">Repuestos e Insumos</p>
                     <div className="space-y-4">
-                      {/* Search / Add Piece */}
-                      <div className="relative group">
-                        <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-3 h-3 text-neutral-400" />
-                        <select 
-                          className="w-full pl-10 pr-4 py-3 rounded-xl bg-neutral-50 dark:bg-neutral-800 text-[10px] font-bold uppercase appearance-none cursor-pointer border border-neutral-100 dark:border-neutral-700"
-                          onChange={async (e) => {
-                            const val = e.target.value;
-                            if (!val) return;
-                            const item = inventarioItems.find(i => i.id === val);
-                            if (item) {
-                              const qty = prompt(`Cantidad de ${item.nombre} a utilizar:`, "1");
-                              if (qty && parseInt(qty) > 0) {
-                                try {
-                                  // 1. Insert Insumo
-                                  await supabase.from('insumos_reparacion').insert({
-                                    reparacion_id: selectedReparacion!.id,
-                                    insumo_id: item.id,
-                                    cantidad: parseInt(qty),
-                                    precio_unitario: item.precio_venta
-                                  });
-                                  // 2. Log History
-                                  await createHistoryEntry(selectedReparacion!.id, "Insumo Agregado", null, null, `Se agregó ${qty}x ${item.nombre} (SKU: ${item.codigo || 'N/A'}).`);
-                                  // 3. Decrement Inventory
-                                  await supabase.from('inventario').update({ 
-                                    stock_actual: item.stock_actual - parseInt(qty) 
-                                  }).eq('id', item.id);
-                                  
-                                  fetchInsumos(selectedReparacion!.id);
-                                  fetchHistory(selectedReparacion!.id);
-                                  alert("¡Repuesto agregado y stock actualizado!");
-                                } catch (err: any) { alert(err.message); }
-                              }
-                            }
-                            e.target.value = ""; // Reset
-                          }}
-                        >
-                          <option value="">+ Agregar repuesto del inventario...</option>
-                          {inventarioItems.map(item => (
-                            <option key={item.id} value={item.id}>
-                              {item.nombre} ({item.marca}) - Stock: {item.stock_actual} - ${item.precio_venta}
-                            </option>
-                          ))}
-                        </select>
+                      {/* Buscador de Repuestos Interactivo */}
+                      <div className="relative">
+                        <div className="relative">
+                          <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-neutral-400 pointer-events-none" />
+                          <input 
+                            type="text"
+                            placeholder="Buscar repuesto por nombre, medida en MM, SKU o marca..."
+                            value={busquedaRepuesto}
+                            onChange={(e) => {
+                              setBusquedaRepuesto(e.target.value);
+                              setShowRepuestoResults(true);
+                            }}
+                            onFocus={() => setShowRepuestoResults(true)}
+                            className="w-full pl-10 pr-9 py-3 rounded-xl bg-neutral-50 dark:bg-neutral-800 text-xs font-bold border border-neutral-200 dark:border-neutral-700 focus:ring-2 focus:ring-black dark:focus:ring-white transition-all shadow-sm placeholder:text-neutral-400 placeholder:font-normal"
+                          />
+                          {busquedaRepuesto && (
+                            <button 
+                              type="button"
+                              onClick={() => {
+                                setBusquedaRepuesto("");
+                                setShowRepuestoResults(false);
+                              }}
+                              className="absolute right-3 top-1/2 -translate-y-1/2 text-neutral-400 hover:text-neutral-700 dark:hover:text-neutral-200 p-1"
+                            >
+                              <X className="w-3.5 h-3.5" />
+                            </button>
+                          )}
+                        </div>
+
+                        {/* Dropdown flotante con resultados filtrados */}
+                        {showRepuestoResults && (
+                          <>
+                            {/* Backdrop invisible para cerrar al hacer clic afuera */}
+                            <div 
+                              className="fixed inset-0 z-20" 
+                              onClick={() => setShowRepuestoResults(false)} 
+                            />
+                            
+                            <div className="absolute left-0 right-0 top-full mt-1.5 z-30 bg-white dark:bg-neutral-900 border border-neutral-200 dark:border-neutral-700 rounded-2xl shadow-2xl overflow-hidden max-h-60 overflow-y-auto custom-scrollbar animate-in fade-in-50 slide-in-from-top-1 duration-150">
+                              {(() => {
+                                const term = busquedaRepuesto.toLowerCase().trim();
+                                const filtered = inventarioItems.filter(item => {
+                                  if (!term) return true;
+                                  return (
+                                    item.nombre?.toLowerCase().includes(term) ||
+                                    (item.codigo && item.codigo.toLowerCase().includes(term)) ||
+                                    (item.modelo && item.modelo.toLowerCase().includes(term)) ||
+                                    (item.marca && item.marca.toLowerCase().includes(term))
+                                  );
+                                });
+
+                                if (filtered.length === 0) {
+                                  return (
+                                    <div className="p-4 text-center text-xs text-neutral-400 italic">
+                                      No se encontraron repuestos para &quot;{busquedaRepuesto}&quot;
+                                    </div>
+                                  );
+                                }
+
+                                return (
+                                  <div className="divide-y divide-neutral-100 dark:divide-neutral-800">
+                                    {filtered.map(item => (
+                                      <div 
+                                        key={item.id}
+                                        onClick={() => {
+                                          setShowRepuestoResults(false);
+                                          setBusquedaRepuesto("");
+                                          handleAddInsumo(item);
+                                        }}
+                                        className="p-3 hover:bg-neutral-50 dark:hover:bg-neutral-800/70 cursor-pointer flex items-center justify-between transition-colors group"
+                                      >
+                                        <div className="space-y-0.5">
+                                          <div className="flex items-center gap-2 flex-wrap">
+                                            <span className="font-bold text-xs text-neutral-900 dark:text-white group-hover:text-emerald-600 dark:group-hover:text-emerald-400 transition-colors">
+                                              {item.nombre}
+                                            </span>
+                                            {item.modelo && item.modelo !== '-' && (
+                                              <span className="text-[9px] font-black bg-blue-50 dark:bg-blue-950/60 text-blue-700 dark:text-blue-300 px-1.5 py-0.5 rounded border border-blue-200 dark:border-blue-800 font-mono">
+                                                {item.modelo}
+                                              </span>
+                                            )}
+                                          </div>
+                                          <p className="text-[10px] text-neutral-400 font-medium flex items-center gap-1.5 flex-wrap">
+                                            {item.codigo && (
+                                              <span className="font-mono bg-neutral-100 dark:bg-neutral-800 px-1 py-0.5 rounded text-neutral-600 dark:text-neutral-400">
+                                                {item.codigo}
+                                              </span>
+                                            )}
+                                            {item.marca && item.marca !== 'Genérico' && <span>• {item.marca}</span>}
+                                            <span className={item.stock_actual <= 5 ? "text-amber-600 dark:text-amber-400 font-bold" : ""}>
+                                              • Stock: {item.stock_actual}
+                                            </span>
+                                          </p>
+                                        </div>
+                                        <div className="text-right shrink-0 ml-3">
+                                          <p className="font-black text-xs text-emerald-600 dark:text-emerald-400">
+                                            ${Number(item.precio_venta).toFixed(2)}
+                                          </p>
+                                          <span className="text-[9px] font-bold text-neutral-400 group-hover:text-emerald-600 dark:group-hover:text-emerald-400 transition-colors">
+                                            + Añadir
+                                          </span>
+                                        </div>
+                                      </div>
+                                    ))}
+                                  </div>
+                                );
+                              })()}
+                            </div>
+                          </>
+                        )}
                       </div>
  
                       {/* List of current insumos */}
@@ -1320,8 +1428,15 @@ export default function ReparacionesPage() {
                                 {insumo.cantidad}
                               </div>
                               <div>
-                                <p className="text-[10px] font-black uppercase tracking-tight">{insumo.inventario?.nombre}</p>
-                                <p className="text-[9px] text-neutral-400 font-bold">SKU: {insumo.inventario?.codigo || 'N/A'}</p>
+                                <div className="flex items-center gap-1.5 flex-wrap">
+                                  <p className="text-[10px] font-black uppercase tracking-tight">{insumo.inventario?.nombre}</p>
+                                  {insumo.inventario?.modelo && insumo.inventario.modelo !== '-' && (
+                                    <span className="text-[9px] font-black bg-blue-50 dark:bg-blue-950/60 text-blue-700 dark:text-blue-300 px-1.5 py-0.5 rounded border border-blue-200 dark:border-blue-800 font-mono">
+                                      {insumo.inventario.modelo}
+                                    </span>
+                                  )}
+                                </div>
+                                <p className="text-[9px] text-neutral-400 font-bold">SKU: {insumo.inventario?.codigo || 'N/A'}{insumo.inventario?.marca ? ` • ${insumo.inventario.marca}` : ''}</p>
                               </div>
                             </div>
                             <button 

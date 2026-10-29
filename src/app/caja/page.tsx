@@ -61,6 +61,8 @@ interface ProductoInventario {
     id: string;
     nombre: string;
     codigo: string;
+    modelo?: string;
+    marca?: string;
     precio_venta: number;
     stock_actual: number;
 }
@@ -73,6 +75,8 @@ interface CartItem {
     precio_unitario: number;
     subtotal: number;
     stock_maximo?: number;
+    codigo?: string;
+    modelo?: string;
 }
 
 export default function FinanzasPage() {
@@ -179,7 +183,7 @@ export default function FinanzasPage() {
     const { data: clis } = await supabase.from('clientes').select('id, nombre_completo, telefono').order('nombre_completo');
     if (clis) setClientes(clis);
 
-    const { data: inv } = await supabase.from('inventario').select('id, nombre, codigo, precio_venta, stock_actual').eq('es_vendible', true).gt('stock_actual', 0).order('nombre');
+    const { data: inv } = await supabase.from('inventario').select('id, nombre, codigo, modelo, marca, precio_venta, stock_actual').eq('es_vendible', true).gt('stock_actual', 0).order('nombre');
     if (inv) setInventario(inv);
   }, [session?.id]);
 
@@ -295,11 +299,13 @@ export default function FinanzasPage() {
       setCartItems([...cartItems, {
         local_id: Math.random().toString(),
         producto_id: producto.id,
-        descripcion: producto.nombre,
+        descripcion: producto.modelo && producto.modelo !== '-' ? `${producto.nombre} (${producto.modelo})` : producto.nombre,
         cantidad: 1,
         precio_unitario: producto.precio_venta,
         subtotal: producto.precio_venta,
-        stock_maximo: producto.stock_actual
+        stock_maximo: producto.stock_actual,
+        codigo: producto.codigo,
+        modelo: producto.modelo
       }]);
     }
   };
@@ -1114,11 +1120,20 @@ export default function FinanzasPage() {
                       </div>
 
                       <div className="flex-1 overflow-y-auto space-y-2 pr-2 custom-scrollbar">
-                          {inventario.filter(p => p.nombre.toLowerCase().includes(busquedaProducto.toLowerCase()) || p.codigo.toLowerCase().includes(busquedaProducto.toLowerCase())).map(prod => (
+                          {inventario.filter(p => {
+                              const term = busquedaProducto.toLowerCase().trim();
+                              if (!term) return true;
+                              return (
+                                  p.nombre.toLowerCase().includes(term) ||
+                                  (p.codigo && p.codigo.toLowerCase().includes(term)) ||
+                                  (p.modelo && p.modelo.toLowerCase().includes(term)) ||
+                                  (p.marca && p.marca.toLowerCase().includes(term))
+                              );
+                          }).map(prod => (
                               <div key={prod.id} onClick={() => handleAddToCart(prod)} className="group flex items-center justify-between p-4 bg-white dark:bg-neutral-900 border border-neutral-100 dark:border-neutral-800 rounded-2xl hover:border-emerald-500 dark:hover:border-emerald-500 cursor-pointer transition-all hover:shadow-lg">
                                   <div>
-                                      <p className="font-bold text-sm text-neutral-900 dark:text-white">{prod.nombre}</p>
-                                      <p className="text-[10px] font-black uppercase text-neutral-400">{prod.codigo} • Stock: {prod.stock_actual}</p>
+                                      <div className="font-bold text-sm text-neutral-900 dark:text-white flex items-center flex-wrap"><span>{prod.nombre}</span>{prod.modelo && prod.modelo !== '-' && <span className="text-[10px] font-black bg-blue-50 dark:bg-blue-950/60 text-blue-700 dark:text-blue-300 px-2 py-0.5 rounded-md border border-blue-200 dark:border-blue-800 font-mono ml-2">{prod.modelo}</span>}</div>
+                                      <p className="text-[10px] font-black uppercase text-neutral-400">{prod.codigo}{prod.marca && prod.marca !== 'Genérico' ? ` • ${prod.marca}` : ''} • Stock: {prod.stock_actual}</p>
                                   </div>
                                   <div className="text-right">
                                       <p className="font-black text-emerald-600">${prod.precio_venta.toFixed(2)}</p>
