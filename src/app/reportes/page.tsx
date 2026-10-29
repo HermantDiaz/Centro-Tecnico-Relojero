@@ -109,11 +109,21 @@ export default function ReportesPage() {
 
   // Chart & Hover States
   const [hoverData, setHoverData] = useState<{label: string, ingreso: number, egreso: number} | null>(null);
+  const [macroScope, setMacroScope] = useState<'meses' | 'anios'>('meses');
+  const [macroYear, setMacroYear] = useState<number>(now.getFullYear());
+  const [macroMovimientos, setMacroMovimientos] = useState<Movimiento[]>([]);
+  const [loadingMacro, setLoadingMacro] = useState<boolean>(true);
+  const [hoverMacroData, setHoverMacroData] = useState<{label: string, fullLabel?: string, ingreso: number, egreso: number} | null>(null);
 
   // Drill-down state
   const [drillDownItem, setDrillDownItem] = useState<{ type: 'concept' | 'subcategory', value: string, name: string } | null>(null);
   const [expandedMovId, setExpandedMovId] = useState<string | null>(null);
-  const [selectedSnapshotData, setSelectedSnapshotData] = useState<{label: string, ingreso: number, egreso: number} | null>(null);
+  const [selectedSnapshotData, setSelectedSnapshotData] = useState<{
+    label: string;
+    ingreso: number;
+    egreso: number;
+    meta?: { type: 'day' | 'month' | 'year'; day?: number; month?: number; year?: number };
+  } | null>(null);
 
   // Turno modal state
   const [selectedSesionForDetails, setSelectedSesionForDetails] = useState<CajaSesion | null>(null);
@@ -220,6 +230,43 @@ export default function ReportesPage() {
       fetchReportes();
     }
   }, [user, rol, selectedMonth, selectedYear]);
+
+  // Carga independiente y en segundo plano para el Gráfico Macro (Meses / Años)
+  // No depende de selectedMonth ni selectedYear para no recargar al cambiar de mes arriba
+  useEffect(() => {
+    if (user && rol === 'admin') {
+      const fetchMacroHistory = async () => {
+        setLoadingMacro(true);
+        try {
+          const fetchBatch = (from: number, to: number) =>
+            supabase
+              .from('caja_movimientos')
+              .select('id, tipo, monto, es_traslado, created_at, concepto')
+              .order('created_at', { ascending: true })
+              .range(from, to);
+
+          const batches = await Promise.all([
+            fetchBatch(0, 999),
+            fetchBatch(1000, 1999),
+            fetchBatch(2000, 2999),
+            fetchBatch(3000, 3999)
+          ]);
+
+          const allMovs: Movimiento[] = [];
+          batches.forEach(b => {
+            if (b.data) allMovs.push(...(b.data as any));
+          });
+          setMacroMovimientos(allMovs);
+        } catch (err) {
+          console.error("Error al cargar histórico macro:", err);
+        } finally {
+          setLoadingMacro(false);
+        }
+      };
+
+      fetchMacroHistory();
+    }
+  }, [user, rol]);
 
   // Carga diferida (lazy load) de los movimientos de la sesión seleccionada
   useEffect(() => {
@@ -365,7 +412,7 @@ export default function ReportesPage() {
       label,
       ingreso: val.ingreso,
       egreso: val.egreso,
-      meta: { type: 'day', day: val.dayNum, month: selectedMonth, year: selectedYear }
+      meta: { type: 'day' as const, day: val.dayNum, month: selectedMonth, year: selectedYear }
     }));
   }, [selectedMonth, selectedYear, movimientosMesValidos]);
 
@@ -377,6 +424,90 @@ export default function ReportesPage() {
     });
     return max || 1;
   }, [chartData]);
+
+  // =========================================================================
+  // CÁLCULOS INDEPENDIENTES PARA EL GRÁFICO MACRO (POR MESES / POR AÑOS)
+  // =========================================================================
+  const macroMovsValidos = useMemo(() => {
+    return filtrarMovimientosValidos(macroMovimientos);
+  }, [macroMovimientos]);
+
+  const macroAvailableYears = useMemo(() => {
+    const curYear = new Date().getFullYear();
+    const set = new Set<number>([curYear, curYear - 1, curYear - 2, macroYear]);
+    macroMovsValidos.forEach(m => {
+      set.add(new Date(m.created_at).getFullYear());
+    });
+    return Array.from(set).sort((a, b) => b - a);
+  }, [macroMovsValidos, macroYear]);
+
+  const macroChartData = useMemo(() => {
+    if (macroScope === 'meses') {
+      const list = MESES.map((mName, idx) => ({
+        label: mName.substring(0, 3),
+        fullLabel: `${mName} ${macroYear}`,
+        ingreso: 0,
+        egreso: 0,
+        meta: { type: 'month' as const, month: idx, year: macroYear }
+      }));
+
+      macroMovsValidos.forEach(m => {
+        if (m.es_traslado) return;
+        const d = new Date(m.created_at);
+        if (d.getFullYear() === macroYear) {
+          const mIdx = d.getMonth();
+          const monto = Number(m.monto);
+          if (m.tipo === 'ingreso') list[mIdx].ingreso += monto;
+          else if (m.tipo === 'egreso') list[mIdx].egreso += monto;
+        }
+      });
+
+      return list;
+    } else {
+      const yearsMap = new Map<number, { ingreso: number, egreso: number }>();
+      const curYear = new Date().getFullYear();
+      [curYear - 1, curYear].forEach(y => yearsMap.set(y, { ingreso: 0, egreso: 0 }));
+
+      macroMovsValidos.forEach(m => {
+        if (m.es_traslado) return;
+        const y = new Date(m.created_at).getFullYear();
+        if (!yearsMap.has(y)) yearsMap.set(y, { ingreso: 0, egreso: 0 });
+        const item = yearsMap.get(y)!;
+        const monto = Number(m.monto);
+        if (m.tipo === 'ingreso') item.ingreso += monto;
+        else if (m.tipo === 'egreso') item.egreso += monto;
+      });
+
+      return Array.from(yearsMap.entries())
+        .sort((a, b) => a[0] - b[0])
+        .map(([year, val]) => ({
+          label: `Año ${year}`,
+          fullLabel: `Ejercicio Fiscal ${year}`,
+          ingreso: val.ingreso,
+          egreso: val.egreso,
+          meta: { type: 'year' as const, year }
+        }));
+    }
+  }, [macroScope, macroYear, macroMovsValidos]);
+
+  const macroTotals = useMemo(() => {
+    let ingreso = 0;
+    let egreso = 0;
+    macroChartData.forEach(d => {
+      ingreso += d.ingreso;
+      egreso += d.egreso;
+    });
+    return { ingreso, egreso, margen: ingreso - egreso };
+  }, [macroChartData]);
+
+  const maxMacroChartValue = useMemo(() => {
+    let max = 0;
+    macroChartData.forEach(d => {
+      if (d.ingreso > max) max = d.ingreso;
+      if (d.egreso > max) max = d.egreso;
+    });
+    return max || 1;
+  }, [macroChartData]);
 
   // Métricas del Historial de Cierres de Caja para el Mes Seleccionado
   const cierresStats = useMemo(() => {
@@ -808,6 +939,228 @@ export default function ReportesPage() {
             )}
           </div>
 
+          {/* ========================================================================= */}
+          {/* GRÁFICO 2 INDEPENDIENTE: RENDIMIENTO MACRO P&L (POR MESES / POR AÑOS) */}
+          {/* ========================================================================= */}
+          <div className="bg-white dark:bg-neutral-900 rounded-[3rem] border border-neutral-100 dark:border-neutral-800 p-8 md:p-12 shadow-2xl relative overflow-visible">
+            {/* Header & Independent Controls */}
+            <div className="flex flex-col lg:flex-row justify-between lg:items-center mb-8 gap-6 pb-8 border-b border-neutral-100 dark:border-neutral-800">
+              <div>
+                <div className="flex items-center gap-2 mb-1">
+                  <BarChart3 className="w-4 h-4 text-blue-600" />
+                  <span className="text-[10px] font-black uppercase tracking-[0.3em] text-blue-600">Monitor Ejecutivo Independiente</span>
+                </div>
+                <h4 className="text-2xl font-black text-neutral-900 dark:text-white uppercase tracking-tighter italic">
+                  {macroScope === 'meses' ? `Panorama Anual P&L (${macroYear})` : 'Comparativa Multianual P&L'}
+                </h4>
+                <p className="text-[10px] font-black text-neutral-400 uppercase tracking-widest mt-1">
+                  {macroScope === 'meses'
+                    ? `Evolución mes a mes de Enero a Diciembre ${macroYear} (Haz clic en un mes para corte o auditar)`
+                    : 'Rendimiento consolidado entre años fiscales (Haz clic en un año para desglosar sus 12 meses)'}
+                </p>
+              </div>
+
+              {/* Independent Scope Toggle & Year Picker */}
+              <div className="flex flex-wrap items-center gap-3">
+                {/* Toggle: Por Meses | Por Años */}
+                <div className="flex bg-neutral-100 dark:bg-neutral-800 rounded-2xl p-1 border border-neutral-200 dark:border-neutral-700">
+                  <button
+                    onClick={() => setMacroScope('meses')}
+                    className={`px-5 py-2.5 rounded-xl text-[9px] font-black uppercase tracking-widest transition-all ${
+                      macroScope === 'meses'
+                        ? 'bg-white dark:bg-neutral-900 text-neutral-900 dark:text-white shadow-md scale-[1.02]'
+                        : 'text-neutral-500 hover:text-neutral-900 dark:hover:text-white'
+                    }`}
+                  >
+                    Por Meses (Ene - Dic)
+                  </button>
+                  <button
+                    onClick={() => setMacroScope('anios')}
+                    className={`px-5 py-2.5 rounded-xl text-[9px] font-black uppercase tracking-widest transition-all ${
+                      macroScope === 'anios'
+                        ? 'bg-white dark:bg-neutral-900 text-neutral-900 dark:text-white shadow-md scale-[1.02]'
+                        : 'text-neutral-500 hover:text-neutral-900 dark:hover:text-white'
+                    }`}
+                  >
+                    Por Años (Histórico)
+                  </button>
+                </div>
+
+                {/* Independent Year Selector (Only in 'meses' mode) */}
+                {macroScope === 'meses' && (
+                  <div className="flex items-center gap-1.5 bg-neutral-100 dark:bg-neutral-800 p-1.5 rounded-2xl border border-neutral-200 dark:border-neutral-700">
+                    <button
+                      onClick={() => setMacroYear(y => y - 1)}
+                      className="p-2 rounded-xl bg-white dark:bg-neutral-900 text-neutral-700 dark:text-neutral-300 shadow-sm hover:scale-105 transition-all"
+                      title="Año anterior"
+                    >
+                      <ChevronLeft className="w-4 h-4" />
+                    </button>
+
+                    <select
+                      value={macroYear}
+                      onChange={(e) => setMacroYear(Number(e.target.value))}
+                      className="bg-transparent text-xs font-black uppercase tracking-tight text-neutral-900 dark:text-white outline-none cursor-pointer px-3"
+                    >
+                      {macroAvailableYears.map(y => (
+                        <option key={y} value={y} className="bg-white dark:bg-neutral-900 text-neutral-900 dark:text-white">
+                          {y}
+                        </option>
+                      ))}
+                    </select>
+
+                    <button
+                      onClick={() => setMacroYear(y => y + 1)}
+                      className="p-2 rounded-xl bg-white dark:bg-neutral-900 text-neutral-700 dark:text-neutral-300 shadow-sm hover:scale-105 transition-all"
+                      title="Año siguiente"
+                    >
+                      <ChevronRight className="w-4 h-4" />
+                    </button>
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* Compact Summary KPIs for the Macro Chart */}
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-10">
+              <div className="p-5 rounded-3xl bg-emerald-50/50 dark:bg-emerald-950/20 border border-emerald-100 dark:border-emerald-900/30 flex items-center justify-between">
+                <div>
+                  <p className="text-[9px] font-black uppercase tracking-widest text-emerald-600 dark:text-emerald-400">
+                    Ingresos {macroScope === 'meses' ? macroYear : 'Históricos'}
+                  </p>
+                  <p className="text-2xl font-black italic tracking-tighter text-emerald-700 dark:text-emerald-300 mt-0.5">
+                    ${macroTotals.ingreso.toFixed(2)}
+                  </p>
+                </div>
+                <div className="w-3 h-3 rounded-full bg-emerald-500"></div>
+              </div>
+
+              <div className="p-5 rounded-3xl bg-rose-50/50 dark:bg-rose-950/20 border border-rose-100 dark:border-rose-900/30 flex items-center justify-between">
+                <div>
+                  <p className="text-[9px] font-black uppercase tracking-widest text-rose-600 dark:text-rose-400">
+                    Egresos {macroScope === 'meses' ? macroYear : 'Históricos'}
+                  </p>
+                  <p className="text-2xl font-black italic tracking-tighter text-rose-700 dark:text-rose-300 mt-0.5">
+                    ${macroTotals.egreso.toFixed(2)}
+                  </p>
+                </div>
+                <div className="w-3 h-3 rounded-full bg-rose-500"></div>
+              </div>
+
+              <div className="p-5 rounded-3xl bg-neutral-900 dark:bg-neutral-800 text-white flex items-center justify-between shadow-lg">
+                <div>
+                  <p className="text-[9px] font-black uppercase tracking-widest text-neutral-400">
+                    Margen Acumulado ({macroScope === 'meses' ? macroYear : 'Total'})
+                  </p>
+                  <p className={`text-2xl font-black italic tracking-tighter mt-0.5 ${macroTotals.margen >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
+                    {macroTotals.margen >= 0 ? '+' : ''}${macroTotals.margen.toFixed(2)}
+                  </p>
+                </div>
+                <TrendingUp className={`w-5 h-5 ${macroTotals.margen >= 0 ? 'text-emerald-400' : 'text-rose-400'}`} />
+              </div>
+            </div>
+
+            {/* Macro Bars Area */}
+            {loadingMacro ? (
+              <div className="h-72 flex items-center justify-center">
+                <div className="w-7 h-7 border-4 border-neutral-200 border-t-black dark:border-t-white rounded-full animate-spin"></div>
+              </div>
+            ) : (
+              <div className="overflow-x-auto custom-scrollbar pb-12 pt-6 -mx-4 px-4 md:mx-0 md:px-0">
+                <div className={`relative h-72 sm:h-80 flex items-end ${macroScope === 'anios' ? 'justify-center gap-12 sm:gap-20' : 'justify-between gap-3 sm:gap-6'} min-w-[640px] px-6`}>
+                  {macroChartData.map((data, i) => {
+                    const isCurrentAuditedMonth =
+                      macroScope === 'meses' &&
+                      data.meta.type === 'month' &&
+                      data.meta.month === selectedMonth &&
+                      macroYear === selectedYear;
+
+                    return (
+                      <div
+                        key={i}
+                        className={`relative flex-1 group flex flex-col justify-end h-full mt-auto cursor-pointer ${
+                          macroScope === 'anios' ? 'max-w-[110px]' : 'min-w-[42px] max-w-[72px]'
+                        }`}
+                        onMouseEnter={() => setHoverMacroData(data)}
+                        onMouseLeave={() => setHoverMacroData(null)}
+                        onClick={() => {
+                          if (macroScope === 'anios' && data.meta.type === 'year') {
+                            setMacroYear(data.meta.year);
+                            setMacroScope('meses');
+                          } else if (macroScope === 'meses' && data.meta.type === 'month') {
+                            setSelectedSnapshotData({
+                              label: data.fullLabel || data.label,
+                              ingreso: data.ingreso,
+                              egreso: data.egreso,
+                              meta: data.meta
+                            });
+                          }
+                        }}
+                      >
+                        {/* Base subtle track for empty months so all 12 months are clearly visible */}
+                        <div className="w-full h-1 bg-neutral-100 dark:bg-neutral-800 rounded-full absolute bottom-0"></div>
+
+                        {/* Egresos Bar (back) */}
+                        <div
+                          className="w-full absolute bottom-0 bg-rose-500 rounded-t-xl opacity-80 group-hover:opacity-100 transition-all duration-500 hover:z-10"
+                          style={{ height: `${(data.egreso / maxMacroChartValue) * 100}%` }}
+                        ></div>
+
+                        {/* Ingresos Bar (front) */}
+                        <div
+                          className="w-[80%] absolute bottom-0 bg-emerald-500 rounded-t-xl opacity-95 shadow-sm group-hover:scale-y-[1.02] transform origin-bottom transition-all duration-500 z-10 left-[10%]"
+                          style={{ height: `${(data.ingreso / maxMacroChartValue) * 100}%` }}
+                        ></div>
+
+                        {/* X Axis Label */}
+                        <div className={`absolute -bottom-10 left-1/2 -translate-x-1/2 text-[10px] font-black uppercase truncate text-center transition-all flex flex-col items-center gap-1 ${
+                          isCurrentAuditedMonth
+                            ? 'text-blue-600 dark:text-blue-400 scale-110'
+                            : 'text-neutral-400 group-hover:text-neutral-900 dark:group-hover:text-white'
+                        }`}>
+                          <span>{data.label}</span>
+                          {isCurrentAuditedMonth && (
+                            <span className="w-1.5 h-1.5 rounded-full bg-blue-600 dark:bg-blue-400" title="Mes auditado actualmente arriba"></span>
+                          )}
+                        </div>
+
+                        {/* Tooltip Hover Pill */}
+                        <div className="absolute -top-14 left-1/2 -translate-x-1/2 bg-black dark:bg-white text-white dark:text-black px-4 py-2 rounded-2xl text-[10px] font-black uppercase tracking-wider opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap shadow-xl z-20 pointer-events-none">
+                          Margen: ${(data.ingreso - data.egreso).toFixed(0)}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+
+            {/* Dynamic Follow Tooltip for Macro Chart (Fixed on Desktop) */}
+            {hoverMacroData && (
+              <div className="hidden md:block absolute top-36 right-12 bg-black/90 dark:bg-white backdrop-blur-xl text-white dark:text-black p-6 rounded-[2rem] shadow-2xl animate-in fade-in duration-300 pointer-events-none z-30 min-w-[220px] ring-1 ring-white/10 dark:ring-black/10">
+                <p className="text-[10px] font-black uppercase tracking-widest text-neutral-400 mb-4 border-b border-white/10 dark:border-black/10 pb-3">
+                  {hoverMacroData.fullLabel || hoverMacroData.label}
+                </p>
+                <div className="space-y-3">
+                  <div className="flex justify-between gap-8 text-sm">
+                    <span className="font-bold text-emerald-400 dark:text-emerald-600">Ingresos</span>
+                    <span className="font-black italic">${hoverMacroData.ingreso.toFixed(2)}</span>
+                  </div>
+                  <div className="flex justify-between gap-8 text-sm">
+                    <span className="font-bold text-rose-400 dark:text-rose-600">Egresos</span>
+                    <span className="font-black italic">${hoverMacroData.egreso.toFixed(2)}</span>
+                  </div>
+                  <div className="flex justify-between gap-8 text-sm pt-3 border-t border-white/10 dark:border-black/10">
+                    <span className="font-black">Margen Neto</span>
+                    <span className={`font-black italic ${hoverMacroData.ingreso - hoverMacroData.egreso >= 0 ? 'text-emerald-400 dark:text-emerald-600' : 'text-rose-400 dark:text-rose-600'}`}>
+                      ${(hoverMacroData.ingreso - hoverMacroData.egreso).toFixed(2)}
+                    </span>
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+
         </div>
       )}
 
@@ -1193,13 +1546,17 @@ export default function ReportesPage() {
             <div id="snapshot-print-area" className="relative w-full max-w-md bg-white dark:bg-neutral-900 rounded-[2.5rem] shadow-2xl overflow-hidden animate-in zoom-in-95 duration-300">
               <div className="hidden print-show text-center border-b-2 border-black pb-4 mb-6 pt-4">
                 <h2 className="text-2xl font-black uppercase tracking-tighter">CENTRO TÉCNICO RELOJERO</h2>
-                <p className="text-xs font-bold uppercase tracking-widest mt-1">Balance Diario Rápido</p>
+                <p className="text-xs font-bold uppercase tracking-widest mt-1">
+                  {selectedSnapshotData.meta?.type === 'month' ? 'Balance Mensual Rápido' : 'Balance Diario Rápido'}
+                </p>
               </div>
 
               <div className="p-8 print:p-0">
                 <div className="flex justify-between items-start mb-8 print-hide">
                   <div>
-                    <p className="text-[10px] font-black uppercase tracking-widest text-blue-500 mb-1">Corte Diario Rápido</p>
+                    <p className="text-[10px] font-black uppercase tracking-widest text-blue-500 mb-1">
+                      {selectedSnapshotData.meta?.type === 'month' ? 'Corte Mensual Rápido' : 'Corte Diario Rápido'}
+                    </p>
                     <h3 className="text-2xl font-black text-neutral-900 dark:text-white uppercase italic tracking-tighter">
                       {selectedSnapshotData.label}
                     </h3>
@@ -1227,6 +1584,19 @@ export default function ReportesPage() {
                 </div>
 
                 <div className="mt-8 pt-8 border-t border-neutral-100 dark:border-neutral-800 flex flex-col gap-3 print-hide">
+                  {selectedSnapshotData.meta?.type === 'month' && typeof selectedSnapshotData.meta.month === 'number' && typeof selectedSnapshotData.meta.year === 'number' && (
+                    <button
+                      onClick={() => {
+                        setSelectedMonth(selectedSnapshotData.meta!.month!);
+                        setSelectedYear(selectedSnapshotData.meta!.year!);
+                        setSelectedSnapshotData(null);
+                        window.scrollTo({ top: 0, behavior: 'smooth' });
+                      }}
+                      className="w-full py-4 bg-neutral-900 dark:bg-white text-white dark:text-black font-black text-[10px] uppercase tracking-widest rounded-2xl shadow-xl transition-all flex justify-center items-center gap-2 hover:scale-[1.02]"
+                    >
+                      Auditar este Mes a Detalle
+                    </button>
+                  )}
                   <button onClick={() => window.print()} className="w-full py-4 bg-blue-600 hover:bg-blue-700 text-white font-black text-[10px] uppercase tracking-widest rounded-2xl shadow-xl shadow-blue-500/20 transition-all flex justify-center items-center gap-2">
                     Exportar a PDF / Imprimir
                   </button>
