@@ -2,10 +2,10 @@ export const TALLER_KNOWLEDGE = {
   empresa: {
     nombre: 'Centro Técnico Relojero',
     ciudad: 'Managua, Nicaragua',
-    ubicacion: 'Plaza España, del semáforo 1c al lago, módulo #4, Managua.',
+    ubicacion: 'Rotonda Bello horizonte 80 varas abajo, Managua, Nicaragua.',
     horario: 'Lunes a Viernes de 8:00 AM a 5:30 PM. Sábados de 8:30 AM a 1:00 PM. Domingos cerrado.',
-    telefono: '+505 8888-0000',
-    whatsapp: 'https://wa.me/50588880000',
+    telefono: '+505 81121594',
+    whatsapp: 'https://wa.me/50581121594',
     especialidad: 'Mantenimiento preventivo, restauración, cambio de repuestos suizos y japoneses, calibración y pruebas de hermeticidad.',
   },
 
@@ -50,7 +50,7 @@ export const TALLER_KNOWLEDGE = {
   ],
 
   marcas_atendidas: [
-    'Seiko', 'Citizen', 'Orient', 'Casio / G-Shock', 'Tissot', 'Bulova', 'Fossil', 
+    'Seiko', 'Citizen', 'Orient', 'Casio / G-Shock', 'Tissot', 'Bulova', 'Fossil',
     'Swatch', 'Invicta', 'Omega', 'Rolex', 'Longines', 'Tag Heuer', 'Victorinox', 'Festina'
   ],
 };
