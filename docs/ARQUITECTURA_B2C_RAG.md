@@ -6,7 +6,8 @@
 **Estado:** Especificación Técnica y Arquitectónica de Producción  
 **Áreas Académicas Asociadas:** Metodología de la Investigación & Inteligencia Artificial  
 **Equipo de Liderazgo:** Hermant Díaz (Tech Lead / Arquitecto de Software) & Brian (Co-Lead)  
-**Equipo Técnico de IA:** Oscar, Josué, Dani, Iván, Brian, Hermant  
+**Equipo Técnico de Contingencia (Sprint MVP):** Hermant Díaz (Lead / Backend IA), Brian (Frontend / Chat UI), Iván (B2C Tracking & Knowledge Base)  
+**Equipo Extendido:** Oscar, Josué, Dani, Iván, Brian, Hermant  
 
 ---
 
@@ -65,6 +66,21 @@ relojeria-workspace/
 * **Single Source of Truth:** Una única base de datos PostgreSQL en Supabase compartida transaccionalmente. Si se vende el último ejemplar de un reloj en la caja física, la tienda web refleja stock `0` instantáneamente.
 * **Aislamiento de Responsabilidades:** El equipo de 6 personas de la materia de IA programa y prueba exclusivamente dentro de `packages/ai-engine/` sin riesgo de colisionar con el código del ERP o la tienda.
 * **Tipado de Extremo a Extremo:** Los esquemas de datos definidos en `packages/database` nutren con tipado estricto (`TypeScript 5+`) tanto a los componentes React como a las herramientas de inferencia del LLM.
+
+### 2.1.1. Estrategia Evolutiva: Del Monolito Modular a Turborepo
+En la práctica de ingeniería de software, forzar una reestructuración a Monorepo en fases tempranas o bajo plazos de entrega inmediatos introduce riesgos severos de desajustes en `workspace dependencies`, resolución de tipos y configuración de bundlers (Turbopack + React 19).
+
+Por tanto, el proyecto implementa un **patrón evolutivo de 2 fases**:
+1. **Fase 1 (MVP Funcional Integrado - Monolito Modular por Dominios):**
+   - Se mantiene el código en el proyecto Next.js actual utilizando una estricta separación de carpetas y responsabilidades (*Clean Boundaries*):
+     - `src/lib/ai/`: Núcleo agnóstico del motor RAG, prompts y definición de tools (precursor de `packages/ai-engine`).
+     - `src/app/api/chat/`: Endpoint de streaming y orquestación LLM.
+     - `src/components/ChatWidget.tsx`: Componente de interfaz de chat aislado (precursor de `packages/ui`).
+     - `src/app/rastreo/`: Fachada pública B2C para consulta de órdenes sin credenciales (precursor de `apps/web`).
+     - Rutas ERP existentes (`/caja`, `/reparaciones`, `/inventario`): Precursoras de `apps/admin`.
+   - **Garantía Técnica:** Permite validar el flujo de negocio, el Tool Calling en Supabase y el RAG sin riesgo de fallas de compilación o bloqueos de infraestructura.
+2. **Fase 2 (Escalamiento y Despliegue Independiente - Extracción a Turborepo):**
+   - Una vez estabilizados los contratos de datos y la interfaz de usuario, los módulos (`src/lib/ai/`, `src/app/rastreo/`) se extraen directamente hacia `packages/ai-engine` y `apps/web` mediante un proceso de refactorización limpia sin tocar la lógica de negocio ni alterar los esquemas de base de datos.
 
 ### 2.2. Stack Tecnológico
 
@@ -540,6 +556,16 @@ Para el informe científico y defensa de la materia de Inteligencia Artificial, 
 │           │ • Redacción final del documento metodológico y benchmark de IA.            │
 └───────────┴────────────────────────────────────────────────────────────────────────────┘
 ```
+
+---
+### 12.1. Plan Operativo de Contingencia: Sprint MVP de Respuesta Rápida (War Room)
+Para la entrega inmediata del prototipo funcional demostrable, el equipo nuclear de 3 integrantes opera bajo la siguiente distribución táctica de alta velocidad:
+
+| Integrante | Rol en el Sprint | Entregable Técnico Clave | Rama Git Aislada |
+| :--- | :--- | :--- | :--- |
+| **Hermant Díaz** | Tech Lead & Backend IA | Endpoint `/api/chat`, integración del LLM (Google Gemini / Vercel AI SDK), Tool Calling con Supabase (`reparaciones`). | `feature/ai-chat-api` |
+| **Brian** | Frontend UI & Chat Experience | Componente interactivo `ChatWidget.tsx`, streaming de mensajes en tiempo real, microinteracciones y estilos visuales. | `feature/chat-widget` |
+| **Iván** | B2C Specialist & Knowledge Engineer | Vista pública `/rastreo` para consulta de tickets sin autenticación, y archivo maestro de conocimiento del taller (`tallerKnowledge.ts`). | `feature/b2c-tracking` |
 
 ---
 *Fin de la Especificación de Arquitectura.*  

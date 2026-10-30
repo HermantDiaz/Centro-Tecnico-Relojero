@@ -177,17 +177,23 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
     };
   }, []);
 
+  const isPublicRoute =
+    pathname === "/login" ||
+    pathname?.startsWith("/tienda") ||
+    pathname?.startsWith("/rastreo") ||
+    pathname?.startsWith("/catalogo");
+
   useEffect(() => {
     if (loading || !sessionReady || isGracePeriod) return;
 
-    if (!user && pathname !== "/login") {
+    if (!user && !isPublicRoute) {
       console.log(`🔐 ${BUILD_VERSION}: SmartGuard -> Redirigiendo a Login.`);
       router.replace("/login");
     } else if (user && pathname === "/login") {
       console.log(`🔐 ${BUILD_VERSION}: SmartGuard -> Usuario autenticado, volviendo.`);
       router.replace("/");
     }
-  }, [user, loading, sessionReady, isGracePeriod, pathname, router]);
+  }, [user, loading, sessionReady, isGracePeriod, pathname, isPublicRoute, router]);
 
   const signOut = async () => {
     setUser(null);
@@ -205,7 +211,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   return (
     <AuthContext.Provider value={{ user, rol, activo, loading, sessionReady, isGracePeriod, lastFocusAt, signOut }}>
       {children}
-      {loading && (
+      {loading && !isPublicRoute && (
         <div className="fixed inset-0 bg-white dark:bg-neutral-950 z-[100] flex flex-col items-center justify-center p-8 text-center animate-in fade-in duration-500">
             <div className="w-16 h-16 border-4 border-neutral-100 dark:border-neutral-900 border-t-neutral-900 dark:border-t-neutral-100 rounded-full animate-spin mb-6"></div>
             <h2 className="text-xl font-black text-neutral-900 dark:text-white tracking-widest uppercase italic border-r-4 border-neutral-900 dark:border-white pr-4">Relojería IA</h2>

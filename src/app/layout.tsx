@@ -17,7 +17,7 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   const pathname = usePathname();
-  const isLoginPage = pathname === "/login";
+  const isLoginPage = pathname === "/login" || pathname?.startsWith("/tienda") || pathname?.startsWith("/rastreo") || pathname?.startsWith("/catalogo");
 
   return (
     <html lang="es" suppressHydrationWarning>
