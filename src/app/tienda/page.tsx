@@ -3,6 +3,7 @@
 import React from 'react';
 import Link from 'next/link';
 import ChatWidget from '@/components/ChatWidget';
+import { TALLER_KNOWLEDGE } from '@/lib/tallerKnowledge';
 import {
   Clock,
   Sparkles,
@@ -256,7 +257,7 @@ export default function TiendaOnlinePage() {
         <div className="max-w-7xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-4">
           <div className="flex items-center gap-2">
             <MapPin className="w-4 h-4 text-amber-400" />
-            <span>Plaza España, del semáforo 1c al lago, Módulo #4, Managua, Nicaragua.</span>
+            <span>{TALLER_KNOWLEDGE.empresa.ubicacion}</span>
           </div>
           <div>
             <span>© 2026 Centro Técnico Relojero • Ecosistema B2C & Asistente IA</span>

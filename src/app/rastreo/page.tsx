@@ -186,7 +186,17 @@ function RastreoContent() {
     reparacion?.diagnostico_tecnico ||
     'Mantenimiento general y revisión técnica';
 
-  const fechaEntregaPrometida = reparacion?.fecha_compromiso || reparacion?.fecha_promesa;
+  const fechaRaw = reparacion?.fecha_compromiso || reparacion?.fecha_promesa;
+  const fechaEntregaPrometida = fechaRaw
+    ? !isNaN(new Date(fechaRaw).getTime())
+      ? new Date(fechaRaw).toLocaleDateString('es-NI', {
+          year: 'numeric',
+          month: 'long',
+          day: 'numeric',
+          timeZone: 'UTC',
+        })
+      : fechaRaw
+    : undefined;
 
   const handleCopyLink = () => {
     if (!reparacion?.numero_recibo) return;
