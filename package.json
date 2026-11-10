@@ -17,7 +17,12 @@
     "start:web": "npm run start --workspace=@relojeria/web",
     "start:admin": "npm run start --workspace=@relojeria/admin",
     "lint": "npm run lint --workspaces --if-present",
-    "typecheck": "npm run typecheck --workspaces --if-present"
+    "typecheck": "npm run typecheck --workspaces --if-present",
+    "test": "npm run test:unit && npm run test:integration && npm run test:e2e && npm run test:perf",
+    "test:unit": "node --test tests/unit/*.test.mjs",
+    "test:integration": "node --test tests/integration/*.test.mjs",
+    "test:e2e": "node --test tests/e2e/*.test.mjs",
+    "test:perf": "node --test tests/perf/*.test.mjs"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.99.2",

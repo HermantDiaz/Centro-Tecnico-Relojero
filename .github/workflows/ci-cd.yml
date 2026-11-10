@@ -1,0 +1,114 @@
+name: 🛡️ CI/CD Quality Gate — Relojería IA Monorepo
+
+on:
+  push:
+    branches: [main, chore/monorepo-transition, 'feat/**', 'fix/**']
+  pull_request:
+    branches: [main]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  NODE_VERSION: '22.x'
+  NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL || 'https://tpuxbvdhxpusyzxgzspk.supabase.co' }}
+  NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.NEXT_PUBLIC_SUPABASE_ANON_KEY || 'ci-placeholder-anon-key' }}
+  GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY || 'ci-placeholder-gemini-key' }}
+
+jobs:
+  # ---------------------------------------------------------------------------
+  # ETAPA 1: Verificación Estática de Tipos y Seguridad (5 Workspaces)
+  # ---------------------------------------------------------------------------
+  typecheck-and-security:
+    name: 1️⃣ Typecheck & Security Audit
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js ${{ env.NODE_VERSION }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Verify no .env secrets are tracked in Git
+        run: |
+          if git ls-files | grep -E '^\.env(\..+)?$' | grep -v '\.example$'; then
+            echo "❌ ERROR CRÍTICO: Archivo .env detectado en control de versiones"
+            exit 1
+          fi
+          echo "✅ Sin archivos .env expuestos en Git."
+
+      - name: Run TypeScript Strict Typecheck (All 5 Workspaces)
+        run: npm run typecheck
+
+  # ---------------------------------------------------------------------------
+  # ETAPA 2: Pruebas Unitarias y de Integración
+  # ---------------------------------------------------------------------------
+  unit-and-integration:
+    name: 2️⃣ Unit & Integration Tests
+    runs-on: ubuntu-latest
+    needs: typecheck-and-security
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js ${{ env.NODE_VERSION }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run Unit Tests (@relojeria/database, @relojeria/ai-engine, @relojeria/admin)
+        run: npm run test:unit
+
+      - name: Run Integration Tests (API Routes, Rate Limiter, RAG & Security Contracts)
+        run: npm run test:integration
+
+  # ---------------------------------------------------------------------------
+  # ETAPA 3: Compilación de Producción Next.js 16 (Turbopack) + Pruebas E2E & Rendimiento
+  # ---------------------------------------------------------------------------
+  build-e2e-and-perf:
+    name: 3️⃣ Production Build, E2E & Load Tests
+    runs-on: ubuntu-latest
+    needs: unit-and-integration
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js ${{ env.NODE_VERSION }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build @relojeria/web & @relojeria/admin
+        run: npm run build
+
+      - name: Start Servers & Execute E2E + Performance Benchmarks
+        run: |
+          npm run start &
+          SERVER_PID=$!
+          echo "Esperando apertura de puertos 3000 y 3001..."
+          for i in $(seq 1 30); do
+            if curl -s http://localhost:3000 > /dev/null && curl -s http://localhost:3001/login > /dev/null; then
+              echo "✅ Servidores listos"
+              break
+            fi
+            sleep 1
+          done
+          npm run test:e2e
+          npm run test:perf
+          kill $SERVER_PID || true
+
