@@ -58,10 +58,12 @@ Este repositorio cuenta con un catálogo curado de reglas, habilidades (*skills*
 - `coding-standards`: Estándares limpios de ingeniería de software, SOLID y DRY.
 - `error-handling`: Programación defensiva, boundaries de error y mensajes de usuario claros.
 - `security-review`: Auditoría de seguridad web, OWASP, protección contra inyecciones y fugas de RLS.
+- `security-audit`: (Cloudflare) Auditoría de seguridad multi-fase y pentesting con verificación rigurosa de límites de confianza, mitigaciones y hallazgos estructurados.
 - `security-scan`: Chequeo rápido de vulnerabilidades en código y dependencias.
 - `tdd-workflow`: Ciclos de desarrollo guiado por pruebas.
 - `verification-loop`: Verificación previa a producción, compilación y pruebas de regresión.
 - `browser-qa`: Aseguramiento de calidad en navegador y flujos E2E.
+- `taste-skill` (`design-taste-frontend`): Dirección de arte anti-slop, microinteracciones pulidas, layouts intencionales y verificación de acabados en navegador real.
 
 ### Preparadas para Futuro (Mobile & IA)
 - `dart-flutter-patterns`: Patrones de arquitectura limpia y widgets reactivos para Flutter.

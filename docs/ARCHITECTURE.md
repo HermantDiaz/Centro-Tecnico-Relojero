@@ -1,78 +1,77 @@
-# 🏛️ Arquitectura del Sistema
+# 🏛️ Arquitectura del Sistema — Relojería IA (CTR)
 
-Este documento describe la arquitectura técnica, el stack tecnológico y los patrones de diseño utilizados en **RELOJERÍA IA**.
+Este documento describe la arquitectura técnica, el stack tecnológico y los patrones de diseño implementados en el ecosistema omnicanal de **Centro Técnico Relojero (CTR)**: ERP/POS Administrativo, Plataforma Pública B2C y Motor de Asistente Virtual con IA (RAG + Tool Calling).
+
+---
 
 ## 🛠️ Stack Tecnológico
 
 | Capa | Tecnología | Propósito |
 | :--- | :--- | :--- |
-| **Frontend** | Next.js 15 (App Router) | Framework principal y SSR/CSR |
-| **Lenguaje** | TypeScript | Tipado estático y seguridad de código |
-| **Estilos** | Tailwind CSS / Vanilla CSS | Diseño moderno, responsivo y "glassmorphism" |
-| **Backend** | Supabase | Base de Datos, Autenticación y API autogenerada |
-| **Estado** | React Context (Auth) | Gestión global de sesión y roles |
-
-## 🏗️ Estructura de Componentes Críticos
-
-### 1. AuthProvider (`src/components/AuthProvider.tsx`)
-Actúa como la "fuente de verdad" para la seguridad.
-- Escucha cambios en `onAuthStateChange` de Supabase.
-- Consulta la tabla `perfiles` para obtener el rol del usuario actual.
-- Provee el contexto `user`, `rol` y `loading` a toda la aplicación.
-- Redirige automáticamente al `/login` si no hay sesión activa.
-
-### 2. Sidebar Recolector (`src/components/Sidebar.tsx`)
-Genera la navegación dinámicamente:
-- Filtra los elementos del menú basándose en el array `roles` definido para cada ruta.
-- Implementa un **Hydration Guard** para evitar parpadeos de UI y errores de SSR.
-
-### 3. SettingsProvider (`src/hooks/useSettings.tsx`)
-Provee la configuración global (moneda, tema, recibos) a toda la aplicación.
-- Sincroniza configuraciones de base de datos (`empresa_config`).
-- Utiliza **Supabase Realtime** (`channel('custom-all-channel')`) para recibir actualizaciones instantáneas cuando un administrador cambia la configuración, replicando el cambio visualmente en todas las sesiones activas del equipo (ej. Cambio de símbolo `$`).
-
-### 4. Hydration & Stability Pattern
-Para evitar errores de hidratación y asegurar que el código dependiente del navegador no se ejecute prematuramente en el servidor:
-- **Mounted Guard**: Se usa un estado `mounted` en `useEffect` para condicionar el renderizado de componentes interactivos.
-- **Session Pulse**: El sistema detecta el foco de la ventana (`window.onfocus`) y sincroniza los datos automáticamente para prevenir sesiones inactivas "fantasma".
-
-## 🔐 Flujo de Seguridad (RBAC)
-
-El sistema utiliza un modelo de **Control de Acceso Basado en Roles (RBAC)** implementado en dos niveles:
-
-1.  **Nivel de Interfaz (Frontend):**
-    - El `Sidebar` oculta módulos no autorizados.
-    - Las páginas protegidas (ej. `/deudas`) contienen un `useEffect` que redirige al Home si el usuario no tiene privilegios de `admin`.
-2.  **Nivel de Datos (Backend):**
-    - **Row Level Security (RLS)** activadas en tablas operativas.
-    - Se integra el hook `useAudit` para registrar de manera inmutable el `usuario_email` y el `user_id` ante acciones sensibles (ej. Pagos de deudas, Anulaciones).
-    - **Escudo Antifraude de Caja:** Desviaciones entre el capital físico (`montoCierreReal`) y el software desencadenan requerimientos mandatorios (Notas Inviolables de Justificación).
-
-## 📁 Organización de Archivos
-
-```text
-src/
-├── app/            # Rutas y páginas (Arquitectura de App Router)
-│   ├── layout.tsx  # Layout global con AuthProvider y Sidebar
-│   ├── page.tsx    # Dashboard principal con estadísticas
-│   └── [modulos]/  # Páginas específicas por funcionalidad
-├── components/     # UI reusable y lógica de layout
-└── lib/            # Configuración de clientes (Supabase)
-```
-
-## 📊 Analítica y Auditoría Forense (Módulo BI)
-
-El sistema implementa una capa de **Business Intelligence (BI)** diseñada para ofrecer transparencia total sin sacrificar el rendimiento:
-
-1.  **Drill-Down Recursivo**: Las consultas a movimientos de caja integran un *join* con `caja_movimientos_detalles`. La UI utiliza un patrón de **Lazy Drill-down** donde el detalle de artículos vendidos se renderiza mediante un componente de expansión que solo procesa datos cuando el usuario interactúa.
-2.  **Analítica Temporal Comparativa**: El motor de reportes calcula automáticamente deltas porcentuales (crecimiento/decrecimiento) comparando los agregados del periodo actual contra el anterior (ej. Mayo vs Abril), permitiendo detectar fugas de capital o picos de ventas instantáneamente.
-3.  **Trazabilidad de Inventario-Reparación y POS**: Se establece un vínculo relacional entre el stock, el taller y la caja. Al aplicar un insumo a una reparación o venderlo mediante el **Sistema POS de Caja** (con carrito de compras), el sistema garantiza la atomicidad de la operación: se descuenta el stock, se genera el comprobante detallado y se registra el movimiento en un solo flujo.
-4.  **Auditoría Forense de Turnos**: El reporte P&L permite exportación a PDF y proporciona una bandeja de recibos y auditoría detallada de todos los artículos y métodos de pago utilizados en cada turno de caja.
-5.  **Enrutamiento Bancario Directo**: Pagos pueden ser ruteados directamente a bancos específicos (ej. Banpro) durante la entrega final, evadiendo transferencias manuales post-entrega.
-
-## 🛡️ Integridad Transaccional Avanzada
-- **Bloqueo por Sesión de Caja**: Las operaciones financieras en el taller (reparaciones/abonos) están condicionadas al estado global de la caja. El sistema consulta el hook `useCaja` para verificar si existe una jornada activa antes de permitir persistir cambios, mitigando descuadres por operaciones "fuera de turno".
-- **Compensación de Anulaciones**: Las anulaciones de movimientos monetarios generan transacciones reversas (+ y -) de compensación antes de eliminaciones absolutas, manteniendo la integridad del libro contable.
+| **Framework Web** | Next.js 16+ (App Router + Turbopack) | Renderizado híbrido SSR/CSR, Route Handlers y React Compiler |
+| **Lenguaje** | TypeScript 5+ (Strict Mode) | Tipado estático y contratos de datos de extremo a extremo |
+| **Estilos & UI** | Tailwind CSS v4 + Lucide React | Sistema visual dual: Operativo (ERP Light/Dark) y *Dark Luxury* (B2C) |
+| **Backend & Persistencia** | Supabase (PostgreSQL + Auth + Realtime) | Base de datos relacional ACID, RLS y sincronización en vivo |
+| **Inteligencia Artificial** | Google Gemini API (Flash / Flash-Lite) | Asistente conversacional con RAG dinámico y *Tool Calling* sobre reparaciones |
 
 ---
-*Última revisión técnica: Junio 2026*
+
+## 🏗️ Arquitectura de Dominios (Rumbo a Monorepo Turborepo)
+
+El sistema está estructurado en tres dominios claramente delimitados (ver detalle en [ARQUITECTURA_B2C_RAG.md](file:///d:/Proyecto%20IA/RELOJERIA%20IA/docs/ARQUITECTURA_B2C_RAG.md)):
+
+```mermaid
+flowchart LR
+    subgraph B2C["Dominio Público B2C (apps/web)"]
+        Tienda["/tienda\nVitrina & Servicios"]
+        Rastreo["/rastreo\nSeguimiento en Vivo"]
+        Widget["ChatWidget.tsx\nAsistente Flotante"]
+    end
+
+    subgraph AI["Motor de IA (packages/ai-engine)"]
+        RouteAPI["/api/chat\nOrquestador Gemini"]
+        Knowledge["tallerKnowledge.ts\nTarifas & Garantías"]
+    end
+
+    subgraph ERP["Dominio Privado ERP/POS (apps/admin)"]
+        Dashboard["/\nDashboard & KPIs"]
+        Caja["/caja\nPOS & Arqueo Forense"]
+        Taller["/reparaciones\nCRM Técnico"]
+        Inv["/inventario, /clientes,\n/deudas, /reportes, /ajustes"]
+    end
+
+    subgraph DB["Núcleo de Datos (packages/database)"]
+        Supabase[("Supabase PostgreSQL\nreparaciones, inventario,\nclientes, caja_*, empresa_config")]
+    end
+
+    Widget --> RouteAPI
+    RouteAPI --> Knowledge
+    RouteAPI --> Supabase
+    Rastreo --> Supabase
+    ERP --> Supabase
+```
+
+### 1. Núcleo de Seguridad y Sesión (`AuthProvider.tsx` & `supabase.ts`)
+- **Protocolo `TITAN-IMMUNE`:** Cliente Supabase configurado con almacenamiento atómico en `sessionStorage` para evitar colisiones de Web Locks en el navegador.
+- **Escudo Singleton:** `AuthProvider` mantiene una única suscripción a `onAuthStateChange`, consulta la tabla `perfiles` para obtener el `rol` (`admin`, `recepcion`, `tecnico`) y el estado `activo`, y protege las rutas internas del ERP permitiendo el paso libre a las rutas públicas B2C (`/tienda`, `/rastreo`).
+
+### 2. Sincronización Global en Tiempo Real (`useSettings.tsx`)
+- Provee la configuración de `empresa_config` (moneda principal, nombre, eslogan y pie de recibo).
+- Suscribe un canal **Supabase Realtime** (`postgres_changes`) que actualiza instantáneamente el formato de moneda y recibos en todas las terminales conectadas.
+
+### 3. Motor Financiero y POS Forense (`useCaja.ts` & `finanzasUtils.ts`)
+- **Validación Estricta de Fondos:** Impide egresos en efectivo o cuentas bancarias (`BAC`, `LAFISE`, `BANPRO`) que superen el saldo disponible en gaveta o en `tesoreria_cuentas`.
+- **Detección de Fugas y Arqueo Ciego:** Al abrir o cerrar sesión en `caja_sesiones`, compara automáticamente el saldo físico contra la bóveda y genera movimientos de ajuste (`Sobrante`/`Faltante`), permitiendo justificación forense posterior (`justifyShortage`).
+- **Neutralización Contable de Anulaciones:** La utilidad `filtrarMovimientosValidos()` empareja y descarta tanto el movimiento original anulado como su contrapartida (`ANULACIÓN: ...`) para evitar distorsiones en el Dashboard y en el Estado de Resultados (P&L).
+
+### 4. Plataforma B2C y Motor RAG / Tool Calling (`/rastreo`, `/tienda`, `/api/chat`)
+- **Portal de Rastreo (`/rastreo`):** Permite a los clientes consultar el avance real de su reloj en 4 etapas (*Recepción → Mesa de Trabajo → Listo → Entregado*), ver su saldo pendiente exacto y compartir el enlace directo de su boleta.
+- **Asistente Virtual IA (`/api/chat` + `ChatWidget.tsx`):**
+  1. Detecta números de recibo en la consulta actual o en los últimos 5 mensajes de la conversación.
+  2. Ejecuta una consulta en tiempo real a `reparaciones` y `clientes` en Supabase e inyecta los datos oficiales verificados en el contexto del modelo.
+  3. Combina el contexto de base de datos con la base de conocimiento oficial del taller (`tallerKnowledge.ts`).
+  4. Ejecuta inferencia rápida en Google Gemini con `thinkingBudget: 0` (evitando latencia adicional y cortes de texto) y cuenta con *fallback* automático entre modelos y timeout de 8 segundos.
+
+---
+
+*Última revisión técnica: Noviembre 2026*

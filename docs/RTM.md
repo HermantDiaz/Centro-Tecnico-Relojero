@@ -1,62 +1,89 @@
 # 📋 Matriz de Trazabilidad de Requerimientos (RTM)
 
-Este documento rastrea el cumplimiento de los requerimientos definidos en el [PRD](file:///d:/Proyecto%20IA/RELOJERIA%20IA/docs/PRD.md).
+Este documento rastrea el cumplimiento de todos los requerimientos definidos en el [PRD v3.0](file:///d:/Proyecto%20IA/RELOJERIA%20IA/docs/PRD.md) a través de los módulos del ERP, la plataforma pública B2C y el motor de Inteligencia Artificial.
 
-## 🧩 Trazabilidad Técnica
+---
 
-## 🧩 Trazabilidad Técnica Detallada
+## 🧩 1. Trazabilidad de Módulos ERP y POS (`apps/admin` & `packages/database`)
 
-| ID Req | Módulo / Archivo de Implementación | Estado | Validación (Prueba) |
+| ID Req | Módulo / Archivo de Implementación | Estado | Validación Técnica |
 | :--- | :--- | :---: | :--- |
-| **REQ-FUN-001** | `AuthProvider.tsx`, `login/page.tsx` | ✅ | Flujo de login exitoso y manejo de errores. |
-| **REQ-FUN-002** | `inventario/page.tsx` | ✅ | Verificación de CRUD (Crear, Leer, Editar, Borrar). |
-| **REQ-FUN-003** | `inventario/page.tsx` (Lógica UI) | ✅ | Aparición de badge "REABASTECER" por stock bajo. |
-| **REQ-FUN-004** | `inventario/page.tsx` (Header Stats) | ✅ | Cálculo exacto de inversión basado en stock. |
-| **REQ-FUN-005** | `admin/usuarios/page.tsx` | ✅ | Gestión de perfiles y estados de activación. |
-| **REQ-FUN-006** | `reparaciones/page.tsx` | ✅ | Dashboard de carga por técnico funcional. |
-| **REQ-FUN-007** | `reparaciones/page.tsx` | ✅ | Modal de historial con logs de auditoría. |
-| **REQ-FUN-008** | `reparaciones/page.tsx` | ✅ | Selector de insumos directo desde el inventario. |
-| **REQ-FUN-009** | `reparaciones/page.tsx` | ✅ | Contador de garantías y alertas de reincidencia. |
-| **REQ-FUN-010** | `caja/page.tsx` | ✅ | Cierre obligatorio con arqueo real y esperado validado. |
-| **REQ-FUN-011** | `caja/page.tsx`, `ComprobantePago.tsx` | ✅ | Categorización de flujos y generación de recibos en caja. |
-| **REQ-FUN-012** | `reportes/page.tsx` | ✅ | Top ingresos/gastos y analítica a 12 meses interactiva. |
-| **REQ-FUN-013** | `ajustes/page.tsx`, `useSettings.tsx` | ✅ | Sincronización Realtime de empresa_config. |
-| **REQ-FUN-014** | `ajustes/page.tsx` | ✅ | Mockup flotante en vivo para editar recibo. |
-| **REQ-FUN-015** | `ComprobantePago.tsx` | ✅ | Impresión nativa con window.print(); PDF en desarrollo. |
-| **REQ-NFC-001** | `layout.tsx`, `Sidebar.tsx` | ✅ | Cambio a modo móvil en viewport angosto. |
-| **REQ-NFC-002** | `globals.css`, `layout.tsx` | ✅ | Sincronización automática con tema del SO. |
-| **REQ-NFC-003** | `globals.css`, Clases Tailwind | ✅ | Efectos visuales, degradados y animaciones. |
-| **REQ-NFC-004** | `AuthProvider.tsx` (Splash Screen) | ✅ | Pantalla de carga inicial con branding CTR. |
-| **REQ-NFC-005** | `Sidebar.tsx`, `LayoutClient.tsx` | ✅ | Implementación de Mounted Guards (Anti-Mismatch). |
-| **REQ-SYS-001** | `lib/supabase.ts` | ✅ | Persistencia de datos en PostgreSQL (Supabase). |
-| **REQ-SYS-002** | Estructura `/src/app/` | ✅ | Uso correcto de App Router y Server Components. |
-| **REQ-USR-002** | `inventario/page.tsx` (Conditional BTNs) | ✅ | Restricción de acciones de escritura a técnicos. |
-| **REQ-USR-003** | `reparaciones/page.tsx` | ✅ | Selección múltiple y borrado masivo activado. |
-| **REQ-USR-004** | `clientes/page.tsx` | ✅ | Ficha de perfil con historial de reparaciones. |
-| **REQ-DOM-001** | `inventario/page.tsx` (Save Logic) | ✅ | Bloqueo de guardado si el SKU ya existe. |
-| **REQ-DOM-002** | `inventario/page.tsx` (Form Inputs) | ✅ | Validación de números positivos y decimales. |
-| **REQ-REP-001** | `reparaciones/page.tsx` | ✅ | Registro y búsqueda avanzada de clientes. |
-| **REQ-REP-002** | `reparaciones/page.tsx` | ✅ | Formulario detallado de reloj y marca. |
-| **REQ-REP-003** | `reparaciones/page.tsx` | ✅ | Workflow de estados (Diagnóstico -> Entregado). |
-| **REQ-REP-004** | `reparaciones/page.tsx` | ✅ | Registro de abonos y saldo calculado. |
-| **REQ-REP-005** | `reparaciones/page.tsx` | ✅ | Ticket de servicio generado (imprimible). |
-| **REQ-REP-006** | `reparaciones/page.tsx` | ✅ | Filtros por Fecha, Estado y Morosidad. |
-| **REQ-SEC-001** | `Supabase` (SQL RLS Policies) | ✅ | Aislamiento estricto por auth.uid() en todas las tablas operativas. |
-| **REQ-SEC-002** | Infraestructura (Vercel/Supabase) | ✅ | Forzado de SSL en todos los dominios. |
-| **REQ-SEC-003** | `AuthProvider.tsx` (JWT Config) | ✅ | Expiración de sesión gestionada por Supabase. |
-| **REQ-SEC-004** | `lib/supabase.ts` / Next.js | ✅ | Prevención nativa de Inyecciones y XSS. |
-| **REQ-REL-001** | Infraestructura (Supabase) | ✅ | Backups diarios automáticos habilitados. |
-| **REQ-REL-002** | Infraestructura (Supabase) | ✅ | SLA de disponibilidad del 99.9%. |
-| **REQ-FUN-016** | `reportes/page.tsx`, `caja/page.tsx` | ✅ | Desglose de artículos visible al expandir movimientos. |
-| **REQ-FUN-017** | `reportes/page.tsx` (Sidebar Logic) | ✅ | Cálculo de variación % vs mes anterior funcional. |
-| **REQ-FUN-018** | `reportes/page.tsx` (Month Picker) | ✅ | Navegación histórica por meses sin errores de scroll. |
-| **REQ-FUN-019** | `reparaciones/page.tsx` | ✅ | Bloqueo de guardado de reparaciones si la caja está cerrada. |
+| **REQ-FUN-001** | `src/components/AuthProvider.tsx`, `src/app/login/page.tsx` | ✅ | Flujo de login con Supabase Auth y registro de evento `LOGIN` en `auditoria_logs`. |
+| **REQ-FUN-002** | `src/app/inventario/page.tsx` | ✅ | CRUD completo de productos, categorías e importación/exportación CSV (`papaparse`). |
+| **REQ-FUN-003** | `src/app/inventario/page.tsx`, `src/app/page.tsx` | ✅ | Badge "REABASTECER" y contador de `stockBajo` en el Dashboard principal. |
+| **REQ-FUN-004** | `src/app/inventario/page.tsx`, `src/app/page.tsx` | ✅ | Cálculo automático de valuación de inventario (`precio_compra * stock_actual`). |
+| **REQ-FUN-005** | `src/app/admin/usuarios/page.tsx`, `src/components/AuthProvider.tsx` | ✅ | Gestión de roles (`admin`, `recepcion`, `tecnico`) y cierre forzado si `activo = false`. |
+| **REQ-FUN-006** | `src/app/reparaciones/page.tsx` | ✅ | Panel de carga de trabajo por técnico especialista. |
+| **REQ-FUN-007** | `src/hooks/useAudit.ts`, `src/app/reparaciones/page.tsx` | ✅ | Hook `useAudit` registrando eventos inmutables en tabla `auditoria_logs`. |
+| **REQ-FUN-008** | `src/app/reparaciones/page.tsx`, `src/app/caja/page.tsx` | ✅ | Descuento de repuestos e insumos de inventario al vincularlos a taller o venta POS. |
+| **REQ-FUN-009** | `src/app/reparaciones/page.tsx`, `src/app/rastreo/page.tsx` | ✅ | Contador `veces_garantia` visible en gestión interna y en portal público. |
+| **REQ-FUN-010** | `src/app/caja/page.tsx`, `src/hooks/useCaja.ts` | ✅ | Apertura y cierre de turno (`openCaja`, `closeCaja`) con cálculo de diferencia y arqueo físico. |
+| **REQ-FUN-011** | `src/app/caja/page.tsx`, `src/components/caja/ComprobantePago.tsx` | ✅ | Registro de ingresos/egresos/traslados y emisión de comprobante. |
+| **REQ-FUN-012** | `src/app/reportes/page.tsx`, `src/app/page.tsx` | ✅ | Rankings de ingresos/egresos y métricas P&L depuradas con `filtrarMovimientosValidos`. |
+| **REQ-FUN-013** | `src/app/ajustes/page.tsx`, `src/hooks/useSettings.tsx` | ✅ | Sincronización Realtime de `empresa_config` en todas las sesiones activas. |
+| **REQ-FUN-014** | `src/app/ajustes/page.tsx` | ✅ | Previsualización interactiva en vivo del formato de recibo. |
+| **REQ-FUN-015** | `src/components/caja/ComprobantePago.tsx` | ✅ | Impresión nativa formateada con tabla de detalles, subtotal, descuento y total. |
+| **REQ-FUN-016** | `src/app/reportes/page.tsx`, `src/app/caja/page.tsx` | ✅ | Drill-down de artículos vendidos mediante relación con `caja_movimientos_detalles`. |
+| **REQ-FUN-017** | `src/app/reportes/page.tsx` | ✅ | Cálculo comparativo de variación porcentual respecto al periodo anterior. |
+| **REQ-FUN-018** | `src/app/reportes/page.tsx` | ✅ | Filtro histórico por mes y año con recálculo reactivo de indicadores. |
+| **REQ-FUN-019** | `src/app/reparaciones/page.tsx`, `src/hooks/useCaja.ts` | ✅ | Validación de sesión de caja activa antes de procesar cobros o movimientos. |
+| **REQ-FUN-020** | `src/app/caja/page.tsx`, `src/hooks/useCaja.ts` | ✅ | Carrito POS con detalle de ítems y cálculo automático de comisión POS (4%). |
+| **REQ-FUN-021** | `src/hooks/useCaja.ts`, `src/app/caja/page.tsx` | ✅ | Enrutamiento a `Efectivo`, `BAC`, `LAFISE`, `BANPRO`, `POS` con validación de saldo previo a egresos. |
+| **REQ-FUN-022** | `src/app/reportes/page.tsx` | ✅ | Exportación de estado de resultados P&L y auditoría forense de turnos. |
+
+---
+
+## 🌐 2. Trazabilidad de Plataforma Pública B2C (`apps/web`)
+
+| ID Req | Módulo / Archivo de Implementación | Estado | Validación Técnica |
+| :--- | :--- | :---: | :--- |
+| **REQ-B2C-001** | `src/app/rastreo/page.tsx` | ✅ | Búsqueda pública por recibo o query param (`?recibo=`), stepper de 4 pasos y ficha económica/técnica. |
+| **REQ-B2C-002** | `src/app/rastreo/page.tsx` | ✅ | Botón de copia de enlace al portapapeles y enlace directo a WhatsApp con número de orden. |
+| **REQ-B2C-003** | `src/app/tienda/page.tsx` | ✅ | Landing comercial B2C con catálogo preliminar, servicios certificados y acceso a rastreo y ERP. |
+
+---
+
+## 🤖 3. Trazabilidad de Inteligencia Artificial y Chatbot RAG (`packages/ai-engine` & `packages/ui`)
+
+| ID Req | Módulo / Archivo de Implementación | Estado | Validación Técnica |
+| :--- | :--- | :---: | :--- |
+| **REQ-IA-001** | `src/components/ChatWidget.tsx` | ✅ | Widget flotante interactivo con estado de carga, chips de consulta rápida y reinicio de conversación. |
+| **REQ-IA-002** | `src/app/api/chat/route.ts` | ✅ | Extracción de recibo en historial reciente y consulta en tiempo real a `reparaciones` y `clientes` en Supabase. |
+| **REQ-IA-003** | `src/lib/tallerKnowledge.ts`, `src/app/api/chat/route.ts` | ✅ | Inyección de tarifas, horarios, ubicación en Managua, marcas y políticas de garantía en el System Prompt. |
+| **REQ-IA-004** | `src/app/api/chat/route.ts` | ✅ | Inferencia con `thinkingBudget: 0`, timeout de 8s (`AbortController`) y fallback automático entre modelos Gemini. |
+| **REQ-IA-005** | `src/app/api/chat/route.ts` | ✅ | Reglas estrictas anti-alucinación en recibos y guardrails contra Prompt Injection o temas fuera del negocio. |
+
+---
+
+## 🛡️ 4. Trazabilidad No Funcional, Sistema, Seguridad y Dominio
+
+| ID Req | Módulo / Archivo de Implementación | Estado | Validación Técnica |
+| :--- | :--- | :---: | :--- |
+| **REQ-NFC-001** | `src/app/layout.tsx`, `src/components/Sidebar.tsx`, vistas B2C | ✅ | Diseño adaptable móvil/desktop en ERP, tienda, rastreo y widget de chat. |
+| **REQ-NFC-002** | `src/app/globals.css`, `src/app/layout.tsx` | ✅ | Soporte Light/Dark en ERP (`ThemeProvider`) y tema Dark Luxury en vistas B2C. |
+| **REQ-NFC-003** | Todas las vistas (`src/app/**`, `src/components/**`) | ✅ | Estados interactivos, animaciones de entrada y feedback de carga. |
+| **REQ-NFC-004** | `src/lib/supabase.ts`, `src/components/AuthProvider.tsx` | ✅ | Protocolo `TITAN-IMMUNE` con `atomicStorage` y `SINGLETON` en suscripción de sesión. |
+| **REQ-NFC-005** | `src/app/rastreo/page.tsx`, `src/components/Sidebar.tsx` | ✅ | Uso de `<Suspense>` para `useSearchParams` y control de montaje en cliente. |
+| **REQ-SYS-001** | `src/lib/supabase.ts` | ✅ | Conexión centralizada a PostgreSQL en Supabase. |
+| **REQ-SYS-002** | `package.json`, `next.config.ts`, `tsconfig.json` | ✅ | Next.js 16.1.7, React 19.2.3, `reactCompiler: true`, `tsc --noEmit` sin errores. |
+| **REQ-SYS-003** | `apps/*`, `packages/*`, `turbo.json`, `package.json` | ✅ | Monorepo Modular implementado (`@relojeria/admin`, `@relojeria/web`, `@relojeria/database`, `@relojeria/ai-engine`, `@relojeria/ui`). |
+| **REQ-USR-001** | `src/components/Sidebar.tsx` | ✅ | Filtrado estricto de rutas financieras y administrativas por rol `admin`. |
+| **REQ-USR-002** | `src/app/inventario/page.tsx` | ✅ | Restricción de controles de escritura para el rol `tecnico`. |
+| **REQ-USR-003** | `src/app/reparaciones/page.tsx` | ✅ | Selección múltiple y acciones por lote en reparaciones. |
+| **REQ-USR-004** | `src/app/clientes/page.tsx` | ✅ | Ficha integral de cliente con historial de servicios y saldos. |
+| **REQ-DOM-001** | `src/app/inventario/page.tsx` | ✅ | Validación de SKU único en inventario. |
+| **REQ-DOM-002** | `src/hooks/useCaja.ts` | ✅ | Validación de montos positivos y verificación de saldo disponible antes de egresar fondos. |
+| **REQ-SEC-001** | Supabase PostgreSQL (Políticas RLS) | ✅ | Seguridad a nivel de fila activa en tablas operativas. |
+| **REQ-SEC-002** | `src/app/api/chat/route.ts`, `.env.local` | ✅ | `GEMINI_API_KEY` leída exclusivamente en el servidor y protegida fuera del cliente. |
+| **REQ-SEC-005** | `src/hooks/useCaja.ts` | ✅ | Detección de fugas fuera de turno en apertura y justificación forense (`justifyShortage`). |
+| **REQ-REL-003** | `src/lib/finanzasUtils.ts` | ✅ | Función `filtrarMovimientosValidos` neutralizando pares de movimientos anulados. |
+| **REQ-REP-001..005** | `src/app/reparaciones/page.tsx`, `src/app/rastreo/page.tsx`, `src/app/api/chat/route.ts` | ✅ | Ciclo completo de orden de reparación sincronizado entre taller, portal web y chatbot. |
+| **REQ-DEU-001** | `src/app/deudas/page.tsx` | ✅ | Gestión de cuentas por cobrar y pagar integrada con tesorería. |
 
 ## 🔑 Leyenda de Estados
 - ✅ **Completado:** Implementado en código y verificado.
-- 🏗️ **En Desarrollo:** Parte de la fase actual de construcción.
-- ⏳ **Pendiente:** Planificado para versiones futuras.
-- 🚫 **Cancelado:** Requerimiento descartado o modificado.
+- 🏗️ **En Transición:** En proceso activo de refactorización a Monorepo.
+- ⏳ **Pendiente:** Planificado para iteraciones futuras.
 
 ---
-*Última actualización: 2026-05-08*
+*Última actualización: Noviembre 2026*

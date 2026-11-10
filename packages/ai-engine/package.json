@@ -1,0 +1,21 @@
+{
+  "name": "@relojeria/ai-engine",
+  "version": "1.0.0",
+  "private": true,
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "exports": {
+    ".": "./src/index.ts",
+    "./knowledge": "./src/tallerKnowledge.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@relojeria/database": "*"
+  },
+  "devDependencies": {
+    "typescript": "^5"
+  }
+}
+
